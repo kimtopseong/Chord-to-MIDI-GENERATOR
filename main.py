@@ -538,7 +538,7 @@ if __name__ == "__main__":
     try:
         from tufup.client import Client
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
-        CURRENT_VERSION = '1.0.1'
+        CURRENT_VERSION = '1.0.5'
 
         # 사용자 홈 폴더 내에 tufup 데이터가 저장될 쓰기 가능한 디렉터리 사용
         writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'

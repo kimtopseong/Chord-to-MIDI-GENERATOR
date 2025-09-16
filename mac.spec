@@ -13,6 +13,13 @@ for res in ['loading.png', 'pro_theme.json', 'root.json']:
 
 a = Analysis(
     ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('loading.png', '.'),
+        ('pro_theme.json', '.'),
+        ('root.json', '.')
+    ],
     pathex=[BASE],
     binaries=[],
     datas=datas_list,

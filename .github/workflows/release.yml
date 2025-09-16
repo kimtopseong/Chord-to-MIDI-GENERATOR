@@ -112,6 +112,26 @@ jobs:
           echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot
           echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp
 
+      - name: Verify keys are unencrypted
+        run: |
+          if grep -q "ENCRYPTED" keys/root; then
+            echo "::error::The TUF_ROOT_KEY secret appears to be encrypted! Please update it with the unencrypted key content."
+            exit 1
+          fi
+          if grep -q "ENCRYPTED" keys/targets; then
+            echo "::error::The TUF_TARGETS_KEY secret appears to be encrypted! Please update it with the unencrypted key content."
+            exit 1
+          fi
+          if grep -q "ENCRYPTED" keys/snapshot; then
+            echo "::error::The TUF_SNAPSHOT_KEY secret appears to be encrypted! Please update it with the unencrypted key content."
+            exit 1
+          fi
+          if grep -q "ENCRYPTED" keys/timestamp; then
+            echo "::error::The TUF_TIMESTAMP_KEY secret appears to be encrypted! Please update it with the unencrypted key content."
+            exit 1
+          fi
+          echo "All key secrets appear to be unencrypted. Proceeding..."
+
       - name: Prepare repository directories
         run: mkdir -p repository/metadata repository/targets keys
 

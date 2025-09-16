@@ -1,0 +1,82 @@
+name: Create Release and Update TUF Metadata
+
+# 'v'로 시작하는 태그가 푸시될 때만 이 워크플로우를 실행합니다. (예: v1.0.3)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 워크플로우가 저장소에 커밋하고 릴리스를 만들 수 있도록 권한을 부여합니다.
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: macos-latest
+
+    steps:
+      # 1. 저장소 코드를 가상 환경으로 가져옵니다.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 2. Python 3.11 버전을 설정합니다.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. requirements.txt 파일로 필요한 라이브러리를 설치합니다.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. GitHub 시크릿에 저장된 TUF 키를 임시 파일로 생성합니다.
+      # tufup.json의 "keys_dir" 설정에 맞춰 'keys' 폴더를 사용합니다.
+      - name: Create TUF key files from secrets
+        env:
+          TUF_KEY_PASSWORD: ${{ secrets.TUF_KEY_PASSWORD }}
+        run: |
+          mkdir -p keys
+          echo "${{ secrets.TUF_ROOT_KEY }}" > keys/root.key
+          echo "${{ secrets.TUF_TARGETS_KEY }}" > keys/targets.key
+          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
+          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
+      
+      # 5. PyInstaller로 애플리케이션을 빌드합니다.
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm main.spec
+
+      # 6. tufup으로 타겟을 추가하고, 각 역할에 맞는 비밀번호로 개별 서명합니다.
+      - name: Create and Sign TUF metadata
+        run: |
+          # 태그(v1.0.3)에서 'v'를 제거하여 버전 번호(1.0.3)를 추출합니다.
+          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+
+          # targets.json에 새 버전을 추가합니다. (targets 키 비밀번호 사용)
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add --version "$VERSION" --path "dist/Chord-to-MIDI-GENERATOR"
+
+          # 각 메타데이터 파일을 서명합니다.
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets
+          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp
+
+      # 7. 변경된 메타데이터 파일들을 저장소의 gh-pages 브랜치에 푸시합니다.
+      - name: Push metadata to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repository # tufup.json의 "repo_dir" 설정값
+          publish_branch: gh-pages
+          force_orphan: true # 브랜치 히스토리를 새로 씁니다.
+
+      # 8. 빌드된 앱을 .tar.gz 파일로 압축합니다.
+      - name: Package the application for release
+        run: |
+          tar -czvf "Chord-to-MIDI-GENERATOR-${{ github.ref_name }}.tar.gz" -C dist .
+
+      # 9. Github Releases 페이지에 새로운 릴리스를 생성하고, 압축 파일을 업로드합니다.
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./Chord-to-MIDI-GENERATOR-${{ github.ref_name }}.tar.gz

@@ -113,7 +113,7 @@ jobs:
           echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
 
       - name: Prepare repository directories
-        run: mkdir -p repository keys
+        run: mkdir -p repository/metadata repository/targets keys
 
       - name: Create and Sign TUF metadata for all artifacts
         env:

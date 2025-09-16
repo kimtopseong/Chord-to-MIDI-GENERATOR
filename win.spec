@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-BASE = os.path.abspath(os.path.dirname(__file__))
+BASE = os.path.abspath(os.path.dirname(SPECPATH))
 
 def data_if_exists(path, dest='.'):
     abs_path = os.path.join(BASE, path) if not os.path.isabs(path) else path

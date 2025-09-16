@@ -112,23 +112,56 @@ jobs:
           echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
           echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
 
-      - name: Create and Sign TUF metadata for all artifacts
+      - name: Ensure tufup repo initialized
+        env:
+          # 루트 키 비밀번호(예: ed25519 passphrase)
+          TUF_KEY_PASSWORD: ${{ secrets.TUF_ROOT_KEY_PASSWORD }}
         run: |
-          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
+          # 1) 키/리포지토리 디렉터리 준비
+          mkdir -p repository keys
 
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys
+          # 2) 이미 초기화돼 있지 않다면 init
+          #    (init은 repository/metadata, repository/targets를 만들어줍니다)
+          if [ ! -d "repository/metadata" ]; then
+            echo "Initializing tufup repository..."
+            tufup init repository keys
+          else
+            echo "tufup repository already initialized"
+          fi
 
-      - name: Push metadata to gh-pages branch
+      - name: Create and Sign TUF metadata for all artifacts
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VER="${VERSION#v}"
+
+          # targets 등록
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
+          tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys repository
+
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
+          tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys repository
+
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
+          tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys repository
+
+          # 메타데이터 서명
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" tufup sign targets   keys repository
+          TUF_KEY_PASSWORD="${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }}" tufup sign snapshot keys repository
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }}" tufup sign timestamp keys repository
+
+          # 생성물 확인
+          echo '--- repository tree ---'
+          ls -al repository
+          ls -al repository/metadata || true
+          ls -al repository/targets  || true
+
+      - name: Push metadata (and targets) to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository
+          publish_dir: ./repository    # metadata/와 targets/ 동시 게시
           publish_branch: gh-pages
           force_orphan: true
 

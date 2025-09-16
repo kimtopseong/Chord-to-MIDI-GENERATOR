@@ -1,11 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
+BASE = os.path.abspath(os.path.dirname(__file__))
+
+def data_if_exists(path, dest='.'):
+    abs_path = os.path.join(BASE, path) if not os.path.isabs(path) else path
+    return [(abs_path, dest)] if os.path.exists(abs_path) else []
+
+datas_list = []
+for res in ['loading.png', 'pro_theme.json', 'root.json']:
+    datas_list += data_if_exists(res, '.')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[BASE],
     binaries=[],
-    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('root.json', '.')],
+    datas=datas_list,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -29,7 +39,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='universal2',  # <--- 이 부분을 'universal2'로 수정
+    # IMPORTANT: do not set target_arch here; thin build follows runner arch.
     codesign_identity=None,
     entitlements_file=None,
 )

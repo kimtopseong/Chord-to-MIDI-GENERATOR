@@ -1,148 +1,142 @@
-name: Build, Release, and Update TUF Metadata
+name: Build & Release (thin mac + win)
 
 on:
   push:
     tags:
       - 'v*'
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 jobs:
-  # ====================================================================
-  # 1. 여러 플랫폼용 파일을 동시에 빌드하는 작업
-  # ====================================================================
   build:
+    name: Build (${{ matrix.os }} • ${{ matrix.asset_suffix }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # macOS Universal 빌드 (mac.spec 사용)
-          - os: macos-latest
-            spec-file: mac.spec
-            asset-name-suffix: 'mac-universal'
-
-          # Windows x86 빌드 (win.spec 사용)
+          # macOS thin builds by runner architecture
+          - os: macos-14
+            spec_file: mac.spec
+            asset_suffix: mac-arm64
+          - os: macos-13
+            spec_file: mac.spec
+            asset_suffix: mac-x86_64
+          # Windows
           - os: windows-latest
-            spec-file: win.spec
-            asset-name-suffix: 'win-x86'
-
-    runs-on: ${{ matrix.os }}
+            spec_file: win.spec
+            asset_suffix: win-x86
 
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install dependencies (macOS)
-        # macOS 빌드 시 Universal 2용 라이브러리를 설치하도록 환경 변수 설정
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install pyinstaller
 
+      # Write root.json from repository secret on both OSes
+      - name: Write root.json from secret (macOS)
         if: runner.os == 'macOS'
         env:
-          ARCHFLAGS: "-arch arm64 -arch x86_64"
+          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
         run: |
-          arch -x86_64 bash -c '
-            echo "Running pip install under x86_64 emulation..."
-            python -m pip install --upgrade pip setuptools wheel
-            pip install --no-cache-dir -r requirements.txt
-          '
+          python - <<'PY'
+import os
+data = os.environ.get('TUF_ROOT_JSON', '')
+open('root.json', 'wb').write(data.encode('utf-8'))
+PY
 
-      - name: Install dependencies (Windows)
-        # Windows는 그대로 둡니다.
+      - name: Write root.json from secret (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
 
-      - name: Create root.json from secret
-        run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
-
-      - name: Build with PyInstaller
-        run: pyinstaller --noconfirm ${{ matrix.spec-file }}
-
-      - name: Package for macOS
+      # Ensure mac.spec does NOT force universal2
+      - name: Sanitize mac.spec (remove any target_arch)
         if: runner.os == 'macOS'
         run: |
-          VERSION="${{ github.ref_name }}"
-          SUFFIX="${{ matrix.asset-name-suffix }}"
-          ASSET_FILENAME="Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
-          (cd dist && zip -r "../${ASSET_FILENAME}" .)
-          echo "ASSET_PATH=${ASSET_FILENAME}" >> $GITHUB_ENV
+          python - <<'PY'
+import io, re
+p = "mac.spec"
+s = open(p, "r", encoding="utf-8").read()
+s = re.sub(r",\s*target_arch\s*=\s*(['"]).*?\1", "", s)
+s = re.sub(r"\s*target_arch\s*=\s*(['"]).*?\1,?", "", s)
+open(p, "w", encoding="utf-8").write(s)
+print("mac.spec: target_arch removed (if present).")
+PY
+          if grep -n "target_arch" mac.spec; then
+            echo "ERROR: target_arch still present in mac.spec"; exit 1
+          else
+            echo "OK: no target_arch in mac.spec"
+          fi
 
-      - name: Package for Windows
+      # Build
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --clean --noconfirm ${{ matrix.spec_file }}
+
+      - name: Build (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm ${{ matrix.spec_file }}
+
+      # Package
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          SUFFIX="${{ matrix.asset_suffix }}"
+          ASSET="Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
+          (cd dist && zip -r "../${ASSET}" .)
+          echo "ASSET_PATH=${ASSET}" >> $GITHUB_ENV
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           $VERSION = "${{ github.ref_name }}"
-          $SUFFIX = "${{ matrix.asset-name-suffix }}"
-          $ASSET_FILENAME = "Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
-          Compress-Archive -Path dist/* -DestinationPath $ASSET_FILENAME
-          echo "ASSET_PATH=${ASSET_FILENAME}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $SUFFIX = "${{ matrix.asset_suffix }}"
+          $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-$SUFFIX.zip"
+          Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
+          "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.asset-name-suffix }}
+          name: ${{ matrix.asset_suffix }}
           path: ${{ env.ASSET_PATH }}
 
-  # ====================================================================
-  # 2. 모든 빌드가 끝난 후, 파일들을 모아서 릴리즈하는 작업
-  # ====================================================================
   release:
-    # 'build' 작업이 모두 성공해야만 실행됩니다.
+    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install tufup
-        run: pip install tufup
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          pattern: '*'
+          merge-multiple: true
+          path: release
 
-      - name: Create TUF key files from secrets
-        run: |
-          mkdir -p keys
-          echo "${{ secrets.TUF_ROOT_KEY }}" > keys/root.key
-          echo "${{ secrets.TUF_TARGETS_KEY }}" > keys/targets.key
-          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
-          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
-
-      - name: Create and Sign TUF metadata for all artifacts
-        run: |
-          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
-          # 각 빌드 결과물에 대해 targets add 실행
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/app-mac-universal/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-universal.zip" keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/app-win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
-
-          # 모든 변경사항에 대해 서명
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys
-
-      - name: Push metadata to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository
-          publish_branch: gh-pages
-          force_orphan: true
-
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v1
-        with:
-          # artifacts/ 폴더 아래의 모든 압축파일을 찾아 업로드
-          files: artifacts/**/*
+          files: release/*.zip
+          draft: false
+          prerelease: false

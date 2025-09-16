@@ -112,22 +112,8 @@ jobs:
           echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
           echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
 
-      - name: Ensure tufup repo initialized
-        env:
-          # 루트 키 비밀번호(예: ed25519 passphrase)
-          TUF_KEY_PASSWORD: ${{ secrets.TUF_ROOT_KEY_PASSWORD }}
-        run: |
-          # 1) 키/리포지토리 디렉터리 준비
-          mkdir -p repository keys
-
-          # 2) 이미 초기화돼 있지 않다면 init
-          #    (init은 repository/metadata, repository/targets를 만들어줍니다)
-          if [ ! -d "repository/metadata" ]; then
-            echo "Initializing tufup repository..."
-            tufup init repository keys
-          else
-            echo "tufup repository already initialized"
-          fi
+      - name: Prepare repository directories
+        run: mkdir -p repository keys
 
       - name: Create and Sign TUF metadata for all artifacts
         env:

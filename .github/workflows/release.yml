@@ -16,14 +16,14 @@ jobs:
     strategy:
       matrix:
         include:
-          # macOS Universal 빌드 (arm64 + x86_64)
+          # macOS Universal 빌드 (mac.spec 사용)
           - os: macos-latest
-            target-arch: universal2
+            spec-file: mac.spec
             asset-name-suffix: 'mac-universal'
 
-          # Windows x86 빌드
+          # Windows x86 빌드 (win.spec 사용)
           - os: windows-latest
-            target-arch: x86
+            spec-file: win.spec
             asset-name-suffix: 'win-x86'
 
     runs-on: ${{ matrix.os }}
@@ -43,24 +43,25 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build with PyInstaller
-        run: pyinstaller --noconfirm --target-arch ${{ matrix.target-arch }} Chord-to-MIDI-GENERATOR.spec
+        run: pyinstaller --noconfirm ${{ matrix.spec-file }}
 
-      - name: Package the application
-        shell: bash
+      - name: Package for macOS
+        if: runner.os == 'macOS'
         run: |
           VERSION="${{ github.ref_name }}"
           SUFFIX="${{ matrix.asset-name-suffix }}"
           ASSET_FILENAME="Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
-          
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            # Windows는 PowerShell의 Compress-Archive를 사용해 .zip으로 압축
-            Compress-Archive -Path dist/* -DestinationPath "${ASSET_FILENAME}"
-          else
-            # macOS도 내장 zip 명령어를 사용해 .zip으로 압축
-            (cd dist && zip -r "../${ASSET_FILENAME}" .)
-          fi
-          
+          (cd dist && zip -r "../${ASSET_FILENAME}" .)
           echo "ASSET_PATH=${ASSET_FILENAME}" >> $GITHUB_ENV
+
+      - name: Package for Windows
+        if: runner.os == 'Windows'
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          $SUFFIX = "${{ matrix.asset-name-suffix }}"
+          $ASSET_FILENAME = "Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
+          Compress-Archive -Path dist/* -DestinationPath $ASSET_FILENAME
+          echo "ASSET_PATH=${ASSET_FILENAME}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

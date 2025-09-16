@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('repository/metadata/root.json', '.')],
+    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('root.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -29,7 +29,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch='universal2',  # <--- 이 부분을 'universal2'로 수정
     codesign_identity=None,
     entitlements_file=None,
 )

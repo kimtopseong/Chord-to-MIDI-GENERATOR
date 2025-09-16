@@ -18,7 +18,7 @@ from tkinter import PhotoImage, filedialog, messagebox
 import customtkinter as ctk
 from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
-APP_TITLE = "Chord to MIDI"
+APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
 
 class ScrollableFrame(ctk.CTkFrame):
@@ -530,46 +530,62 @@ class App(ctk.CTk):
             self._log(f"FATAL Error generating MIDI: {e}"); messagebox.showerror("Error", f"Failed to generate MIDI:\n{e}")
     
 if __name__ == "__main__":
-    # tufup update check
-    from tufup.client import Client
+    # tufup 업데이트 확인
     from pathlib import Path
     import sys
     import os
 
     try:
+        from tufup.client import Client
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
-        CURRENT_VERSION = '1.0.1'
+        CURRENT_VERSION = '1.0.3'
+
+        # 사용자 홈 폴더 내에 tufup 데이터가 저장될 쓰기 가능한 디렉터리 사용
+        writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'
+        metadata_dir = writable_dir / 'metadata'
+        os.makedirs(metadata_dir, exist_ok=True)
+
+        # 번들된 root.json 콘텐츠 로드
+        bundled_root_json_path_str = App.resource_path('root.json')
+        bundled_root_json_content = Path(bundled_root_json_path_str).read_text()
+
+        # 신뢰 부트스트랩을 위해 metadata 디렉터리에 root.json을 수동으로 배치
+        # 단, 파일이 존재하지 않을 경우에만 생성하여 덮어쓰기 방지
+        root_json_path = metadata_dir / 'root.json'
+        if not root_json_path.exists():
+            root_json_path.write_text(bundled_root_json_content)
 
         if getattr(sys, 'frozen', False):
-            app_install_dir = Path(sys.executable).parent
+            # frozen 앱의 경우 설치 디렉터리는 .app이 있는 위치
+            # sys.executable은 .../Contents/MacOS/executable이므로 3단계 상위 폴더
+            app_install_dir = Path(sys.executable).parent.parent.parent
         else:
+            # 스크립트의 경우 스크립트가 있는 디렉터리
             app_install_dir = Path(__file__).parent
 
         METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/'
         TARGET_BASE_URL = 'https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/'
 
-        metadata_dir = app_install_dir / 'tuf_metadata'
-        target_dir = app_install_dir / 'tuf_targets'
-        
-        # Create directories if they don't exist
-        os.makedirs(metadata_dir, exist_ok=True)
+        target_dir = writable_dir / 'targets'
         os.makedirs(target_dir, exist_ok=True)
 
         client = Client(
             app_name=APP_NAME,
+            app_install_dir=str(app_install_dir),
             current_version=CURRENT_VERSION,
             metadata_dir=str(metadata_dir),
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
         )
-
-        if client.check_for_updates():
-            client.update()
+        
+        # 업데이트 확인 실행
+        client.check_for_updates()
+        
     except Exception as e:
-        # Log the error and continue. This prevents the app from crashing if the update check fails.
+        # 오류를 기록하고 계속 진행. 업데이트 확인 실패로 앱이 충돌하는 것을 방지
         print(f"Error during update check: {e}")
-    # End of tufup update check
+    # tufup 업데이트 확인 종료
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)
     try:

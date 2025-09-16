@@ -67,7 +67,7 @@
  [],
  False,
  False,
- 1757990433,
+ 1757994813,
  [('runw',
    '/Users/tsk/Desktop/chord_generator/venv/lib/python3.13/site-packages/PyInstaller/bootloader/Darwin-64bit/runw',
    'EXECUTABLE')],

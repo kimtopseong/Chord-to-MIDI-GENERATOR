@@ -1,16 +1,16 @@
 {
  "signatures": [
   {
-   "keyid": "cf0bcec598585cc8861e2579ff49658c569632666bead71a7db5bb6b94cfa69d",
-   "sig": "3a857af444d761d0d408dc3fc7d59dbc56581bdcd0c55b2731ce67025b7f3e93cd62e1820ec75892a4fc2f12f2c5313e43dd45360136730f3060c3c21ee8c00a"
+   "keyid": "195296a3447187fa6a91dbd6f2e000260e696d2abcf4dfc9abb3d68e0e1d403a",
+   "sig": "e84e153a2db3671a9f9e571f292e2b07d7c7ecc6befd2ba33ae33e8e230d38ebd60721e079c495f747797427aa1823e8f83e3aaa7ac7ceb0b166c0960edd3401"
   }
  ],
  "signed": {
   "_type": "targets",
-  "expires": "2026-09-16T02:45:08Z",
+  "expires": "2026-09-16T11:00:16Z",
   "spec_version": "1.0.31",
   "targets": {
-   "Chord to MIDI GENERATOR-1.0.2.tar.gz": {
+   "Chord-to-MIDI-GENERATOR-1.0.2.tar.gz": {
     "custom": {
      "tufup": {
       "required": false
@@ -18,9 +18,9 @@
      "user": null
     },
     "hashes": {
-     "sha256": "672b63de78aee2a33cb8a6f235714a87e48ce034a69904c7a8a6f747b2c2a22a"
+     "sha256": "3491fe966276feb7e2d0854703dc4c24f5548505fe6406ccaf319eec8dc66b9d"
     },
-    "length": 19659731
+    "length": 19659401
    }
   },
   "version": 2

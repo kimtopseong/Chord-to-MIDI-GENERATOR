@@ -1,6 +1,6 @@
 {
-    "app_name": "Chord to MIDI GENERATOR",
-    "app_version_attr": "1.0.2",
+    "app_name": "Chord-to-MIDI-GENERATOR",
+    "app_version_attr": null,
     "encrypted_keys": [
         "root",
         "targets",

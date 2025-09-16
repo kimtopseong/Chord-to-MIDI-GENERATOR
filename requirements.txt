@@ -1,3 +1,4 @@
+tufup
+pyinstaller
 customtkinter
 mido
-tufup

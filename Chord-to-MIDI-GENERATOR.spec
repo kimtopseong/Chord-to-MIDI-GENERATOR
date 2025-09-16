@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('loading.png', '.'), ('pro_theme.json', '.')],
+    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('repository/metadata/root.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Chord Generator',
+    name='Chord-to-MIDI-GENERATOR',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -40,11 +40,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Chord Generator',
+    name='Chord-to-MIDI-GENERATOR',
 )
 app = BUNDLE(
     coll,
-    name='Chord Generator.app',
+    name='Chord-to-MIDI-GENERATOR.app',
     icon=None,
     bundle_identifier=None,
 )

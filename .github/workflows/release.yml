@@ -56,10 +56,10 @@ jobs:
           # targets.json에 새 버전을 추가합니다. (targets 키 비밀번호 사용)
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "dist/Chord-to-MIDI-GENERATOR" keys
 
-          # 각 메타데이터 파일을 서명합니다.
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets
-          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp
+          # 각 메타데이터 파일을 서명합니다. (각 줄마다 비밀번호와 키 폴더 경로 추가)
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
+          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys
 
       # 7. 변경된 메타데이터 파일들을 저장소의 gh-pages 브랜치에 푸시합니다.
       - name: Push metadata to gh-pages branch

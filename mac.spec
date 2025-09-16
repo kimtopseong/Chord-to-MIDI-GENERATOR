@@ -1,10 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
+BASE = os.path.abspath(os.path.dirname(__file__))
+
+def data_if_exists(path, dest='.'):
+    abs_path = os.path.join(BASE, path) if not os.path.isabs(path) else path
+    return [(abs_path, dest)] if os.path.exists(abs_path) else []
+
+# Collect only existing resources to prevent build errors on CI
+datas_list = []
+for res in ['loading.png', 'pro_theme.json', 'root.json']:
+    datas_list += data_if_exists(res, '.')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[BASE],
     binaries=[],
-    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('root.json', '.')],
+    datas=datas_list,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -28,10 +40,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    # NOTE:
-    # - Removed target_arch='universal2' to avoid fat-binary enforcement.
-    # - Thin build is determined by the runner's native architecture.
-    #   (arm64 on macos-14 runners, x86_64 on macos-13 runners)
+    # Thin build (runner-native arch). Do NOT set target_arch here.
     codesign_identity=None,
     entitlements_file=None,
 )

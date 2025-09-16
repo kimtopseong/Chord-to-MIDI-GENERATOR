@@ -11,6 +11,7 @@ jobs:
     name: Build (${{ matrix.os }} • ${{ matrix.asset_suffix }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # macOS thin builds by runner architecture
@@ -40,6 +41,33 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           pip install pyinstaller
+
+      - name: Write TUF root.json from secret
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.TUF_ROOT_JSON }}" ]; then
+            cat > root.json <<'JSON'
+${{ secrets.TUF_ROOT_JSON }}
+JSON
+            echo "root.json created ($(wc -c < root.json) bytes)"
+          else
+            echo "TUF_ROOT_JSON secret is empty or not set; skipping root.json creation"
+          fi
+
+      - name: Verify app resources
+        shell: bash
+        run: |
+          echo "Listing repository root:"
+          pwd
+          ls -la
+          echo "Checking known resource files:"
+          for f in loading.png pro_theme.json root.json; do
+            if [ -f "$f" ]; then
+              echo "✓ found $f"
+            else
+              echo "✗ missing $f"
+            fi
+          done
 
       # Build (macOS) — no --target-arch when using a .spec file
       - name: Build (macOS)

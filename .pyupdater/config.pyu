@@ -1,0 +1,20 @@
+{
+  "config_dir": "/Users/tsk/Desktop/chord_generator/.pyupdater",
+  "filename": "/Users/tsk/Desktop/chord_generator/.pyupdater/config.pyu",
+  "count": 0,
+  "app_config": {
+    "APP_NAME": "Chord to MIDI GENERATOR",
+    "CLIENT_CONFIG_PATH": [
+      "client_config.py"
+    ],
+    "COMPANY_NAME": "TSK",
+    "PLUGIN_CONFIGS": {},
+    "UPDATE_PATCHES": true,
+    "MAX_DOWNLOAD_RETRIES": 3,
+    "HTTP_TIMEOUT": 30,
+    "UPDATE_URLS": [
+      ""
+    ],
+    "DATA_DIR": "/Users/tsk/Desktop/chord_generator"
+  }
+}

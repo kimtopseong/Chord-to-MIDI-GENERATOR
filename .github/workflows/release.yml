@@ -7,9 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ====================================================================
-  # 1. 아키텍처별로 앱을 빌드하는 작업
-  # ====================================================================
   build:
     name: Build - ${{ matrix.asset_suffix }}
     runs-on: ${{ matrix.os }}
@@ -17,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14 # Apple Silicon Runner
+          - os: macos-14
             spec_file: mac.spec
             asset_suffix: mac-arm64
-          - os: macos-13 # Intel Runner
+          - os: macos-13
             spec_file: mac.spec
             asset_suffix: mac-x86_64
           - os: windows-latest
@@ -73,7 +70,7 @@ jobs:
         run: |
           $VERSION = "${{ github.ref_name }}"
           $SUFFIX = "${{ matrix.asset_suffix }}"
-          $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-$SUFFIX.zip"
+          $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-$SUFFIX}.zip"
           Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
           "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -83,9 +80,6 @@ jobs:
           name: ${{ matrix.asset_suffix }}
           path: ${{ env.ASSET_PATH }}
 
-  # ====================================================================
-  # 2. 모든 빌드 파일을 모아 tufup 서명 후 최종 릴리즈하는 작업
-  # ====================================================================
   release:
     name: Create GitHub Release
     needs: build
@@ -122,12 +116,10 @@ jobs:
         run: |
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          # 각 빌드 결과물에 대해 targets add 실행
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
 
-          # 모든 변경사항에 대해 서명
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
           TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
           TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys

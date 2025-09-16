@@ -107,10 +107,10 @@ jobs:
       - name: Create TUF key files from secrets
         run: |
           mkdir -p keys
-          echo "${{ secrets.TUF_ROOT_KEY }}" > keys/root.key
-          echo "${{ secrets.TUF_TARGETS_KEY }}" > keys/targets.key
-          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
-          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
+          echo "${{ secrets.TUF_ROOT_KEY }}" > keys/root
+          echo "${{ secrets.TUF_TARGETS_KEY }}" > keys/targets
+          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot
+          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp
 
       - name: Prepare repository directories
         run: mkdir -p repository/metadata repository/targets keys

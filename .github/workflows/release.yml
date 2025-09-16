@@ -8,20 +8,18 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }} • ${{ matrix.asset_suffix }})
+    name: Build - ${{ matrix.os }} - ${{ matrix.asset_suffix }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS thin builds by runner architecture
           - os: macos-14
             spec_file: mac.spec
             asset_suffix: mac-arm64
           - os: macos-13
             spec_file: mac.spec
             asset_suffix: mac-x86_64
-          # Windows
           - os: windows-latest
             spec_file: win.spec
             asset_suffix: win-x86
@@ -42,17 +40,13 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # Write root.json from repository secret on both OSes
       - name: Write root.json from secret (macOS)
         if: runner.os == 'macOS'
         env:
           TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
         run: |
-          python - <<'PY'
-import os
-data = os.environ.get('TUF_ROOT_JSON', '')
-open('root.json', 'wb').write(data.encode('utf-8'))
-PY
+          python -c "import os; open('root.json','wb').write(os.environ.get('TUF_ROOT_JSON','').encode('utf-8'))"
+          test -f root.json && echo 'root.json written'
 
       - name: Write root.json from secret (Windows)
         if: runner.os == 'Windows'
@@ -61,27 +55,18 @@ PY
           TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
         run: |
           Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
+          if (Test-Path root.json) { Write-Host "root.json written" }
 
-      # Ensure mac.spec does NOT force universal2
       - name: Sanitize mac.spec (remove any target_arch)
         if: runner.os == 'macOS'
         run: |
-          python - <<'PY'
-import io, re
-p = "mac.spec"
-s = open(p, "r", encoding="utf-8").read()
-s = re.sub(r",\s*target_arch\s*=\s*(['"]).*?\1", "", s)
-s = re.sub(r"\s*target_arch\s*=\s*(['"]).*?\1,?", "", s)
-open(p, "w", encoding="utf-8").write(s)
-print("mac.spec: target_arch removed (if present).")
-PY
+          python -c "import re; p='mac.spec'; s=open(p,'r',encoding='utf-8').read(); s=re.sub(r',\s*target_arch\s*=\s*([\"\']).*?\1','',s); s=re.sub(r'\s*target_arch\s*=\s*([\"\']).*?\1,?','',s); open(p,'w',encoding='utf-8').write(s)"
           if grep -n "target_arch" mac.spec; then
             echo "ERROR: target_arch still present in mac.spec"; exit 1
           else
             echo "OK: no target_arch in mac.spec"
           fi
 
-      # Build
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -93,7 +78,6 @@ PY
         run: |
           pyinstaller --clean --noconfirm ${{ matrix.spec_file }}
 
-      # Package
       - name: Package (macOS)
         if: runner.os == 'macOS'
         shell: bash

@@ -113,16 +113,21 @@ jobs:
           echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
 
       - name: Create and Sign TUF metadata for all artifacts
-        run: |
-          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
+          run: |
+            # 1. tufup 저장소를 초기화합니다. (가장 먼저 실행)
+            TUF_KEY_PASSWORD=${{ secrets.TUF_ROOT_KEY_PASSWORD }} tufup init keys
 
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys
+            export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+
+            # 2. 각 빌드 결과물에 대해 targets add 실행
+            TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
+            TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
+            TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
+
+            # 3. 모든 변경사항에 대해 서명
+            TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets keys
+            TUF_KEY_PASSWORD=${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }} tufup sign snapshot keys
+            TUF_KEY_PASSWORD=${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }} tufup sign timestamp keys
 
       - name: Push metadata to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3

@@ -1,10 +1,8 @@
-# 빌드 결과물 폴더
 dist/
-build/ 
-
-# 파이썬 가상환경 폴더 (사용하는 경우)
+build/ 
 venv/
-
-# 파이썬 캐시 파일
+repository/
 __pycache__/
+.DS_Store
+*.log
 *.pyc

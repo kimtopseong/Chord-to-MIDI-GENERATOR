@@ -42,6 +42,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create root.json from secret
+        run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
+
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm ${{ matrix.spec-file }}
 

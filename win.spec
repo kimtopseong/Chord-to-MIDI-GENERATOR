@@ -1,28 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
+# __file__ 대신 PyInstaller의 내장 변수인 SPECPATH 사용
 BASE = os.path.abspath(os.path.dirname(SPECPATH))
-
-def data_if_exists(path, dest='.'):
-    abs_path = os.path.join(BASE, path) if not os.path.isabs(path) else path
-    return [(abs_path, dest)] if os.path.exists(abs_path) else []
-
-datas_list = []
-for res in ['loading.png', 'pro_theme.json', 'root.json']:
-    datas_list += data_if_exists(res, '.')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[BASE], # 'pathex'는 한 번만, 그리고 BASE를 사용해야 합니다.
     binaries=[],
     datas=[
         ('loading.png', '.'),
         ('pro_theme.json', '.'),
         ('root.json', '.')
     ],
-    pathex=[BASE],
-    binaries=[],
-    datas=datas_list,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

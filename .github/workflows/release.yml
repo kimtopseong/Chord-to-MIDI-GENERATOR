@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-14 # Apple Silicon
             spec_file: mac.spec
             asset_suffix: mac-arm64
-          - os: macos-13
+          - os: macos-13 # Intel
             spec_file: mac.spec
             asset_suffix: mac-x86_64
           - os: windows-latest
@@ -56,16 +56,6 @@ jobs:
         run: |
           Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
           if (Test-Path root.json) { Write-Host "root.json written" }
-
-      - name: Sanitize mac.spec (remove any target_arch)
-        if: runner.os == 'macOS'
-        run: |
-          python -c "import re; p='mac.spec'; s=open(p,'r',encoding='utf-8').read(); s=re.sub(r',\s*target_arch\s*=\s*([\"\']).*?\1','',s); s=re.sub(r'\s*target_arch\s*=\s*([\"\']).*?\1,?','',s); open(p,'w',encoding='utf-8').write(s)"
-          if grep -n "target_arch" mac.spec; then
-            echo "ERROR: target_arch still present in mac.spec"; exit 1
-          else
-            echo "OK: no target_arch in mac.spec"
-          fi
 
       - name: Build (macOS)
         if: runner.os == 'macOS'

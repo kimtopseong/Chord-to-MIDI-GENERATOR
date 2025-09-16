@@ -54,7 +54,7 @@ jobs:
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
 
           # targets.json에 새 버전을 추가합니다. (targets 키 비밀번호 사용)
-          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add --version "$VERSION" --path "dist/Chord-to-MIDI-GENERATOR"
+          TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup targets add --version "$VERSION" --path "dist/Chord-to-MIDI-GENERATOR" keys # <-- 여기에 'keys'를 추가!
 
           # 각 메타데이터 파일을 서명합니다.
           TUF_KEY_PASSWORD=${{ secrets.TUF_TARGETS_KEY_PASSWORD }} tufup sign targets

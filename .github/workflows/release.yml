@@ -45,7 +45,7 @@ jobs:
       
       # 5. PyInstaller로 애플리케이션을 빌드합니다.
       - name: Build with PyInstaller
-        run: pyinstaller --noconfirm main.spec
+        run: pyinstaller --noconfirm Chord-to-MIDI-GENERATOR.spec
 
       # 6. tufup으로 타겟을 추가하고, 각 역할에 맞는 비밀번호로 개별 서명합니다.
       - name: Create and Sign TUF metadata

@@ -1,6 +1,7 @@
 dist/
 build/ 
 venv/
+keys/
 repository/
 __pycache__/
 .DS_Store

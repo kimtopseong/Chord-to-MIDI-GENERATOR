@@ -118,24 +118,19 @@ jobs:
       - name: Create and Sign TUF metadata for all artifacts
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
-          TUF_TARGETS_KEY_PASSWORD: ${{ secrets.TUF_TARGETS_KEY_PASSWORD }}
-          TUF_SNAPSHOT_KEY_PASSWORD: ${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }}
-          TUF_TIMESTAMP_KEY_PASSWORD: ${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           VER=${GITHUB_REF_NAME#v}
 
-          # targets 등록 및 서명
-          TUF_KEY_PASSWORD=$TUF_TARGETS_KEY_PASSWORD tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-arm64.zip" keys
-          TUF_KEY_PASSWORD=$TUF_TARGETS_KEY_PASSWORD tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-x86_64.zip" keys
-          TUF_KEY_PASSWORD=$TUF_TARGETS_KEY_PASSWORD tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-win-x86.zip" keys
-          TUF_KEY_PASSWORD=$TUF_TARGETS_KEY_PASSWORD tufup sign targets keys
+          # targets 등록
+          tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-arm64.zip" keys
+          tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-x86_64.zip" keys
+          tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-win-x86.zip" keys
 
-          # 스냅샷 서명
-          TUF_KEY_PASSWORD=$TUF_SNAPSHOT_KEY_PASSWORD tufup sign snapshot keys
-
-          # 타임스탬프 서명
-          TUF_KEY_PASSWORD=$TUF_TIMESTAMP_KEY_PASSWORD tufup sign timestamp keys
+          # 메타데이터 서명
+          tufup sign targets keys
+          tufup sign snapshot keys
+          tufup sign timestamp keys
 
           # 생성물 확인
           echo '--- repository tree ---

@@ -563,7 +563,7 @@ if __name__ == "__main__":
             # 스크립트의 경우 스크립트가 있는 디렉터리
             app_install_dir = Path(__file__).parent
 
-        METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/'
+        METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/metadata'
         TARGET_BASE_URL = 'https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/'
 
         target_dir = writable_dir / 'targets'

@@ -37,11 +37,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install dependencies (macOS)
+        # macOS 빌드 시 Universal 2용 라이브러리를 설치하도록 환경 변수 설정
+        if: runner.os == 'macOS'
+        env:
+          ARCHFLAGS: "-arch arm64 -arch x86_64"
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install dependencies (Windows)
+        # Windows는 그대로 둡니다.
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
       - name: Create root.json from secret
         run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
 

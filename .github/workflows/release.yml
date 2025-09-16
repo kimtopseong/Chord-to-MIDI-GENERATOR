@@ -124,21 +124,21 @@ jobs:
 
           # targets 등록
           TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
-          tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys repository
+          tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
 
           TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
-          tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys repository
+          tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
 
           TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" \
-          tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys repository
+          tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
 
           # 메타데이터 서명
-          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" tufup sign targets   keys repository
-          TUF_KEY_PASSWORD="${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }}" tufup sign snapshot keys repository
-          TUF_KEY_PASSWORD="${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }}" tufup sign timestamp keys repository
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TARGETS_KEY_PASSWORD }}" tufup sign targets   keys
+          TUF_KEY_PASSWORD="${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }}" tufup sign snapshot keys
+          TUF_KEY_PASSWORD="${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }}" tufup sign timestamp keys
 
           # 생성물 확인
-          echo '--- repository tree ---'
+          echo '--- repository tree ---
           ls -al repository
           ls -al repository/metadata || true
           ls -al repository/targets  || true

@@ -1,23 +1,11 @@
-import os
-
-BASE = os.path.abspath(os.path.dirname(__file__))
-def data_if_exists(path, dest='.'):
-    abs_path = os.path.join(BASE, path) if not os.path.isabs(path) else path
-    return [(abs_path, dest)] if os.path.exists(abs_path) else []
-
-datas_list = []
-for res in ['loading.png', 'pro_theme.json', 'root.json']:
-    datas_list += data_if_exists(res, '.')
-
-import os
 # -*- mode: python ; coding: utf-8 -*-
 
 
 a = Analysis(
     ['main.py'],
-    pathex=[BASE],
+    pathex=[],
     binaries=[],
-    datas=datas_list,
+    datas=[('loading.png', '.'), ('pro_theme.json', '.'), ('root.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -1,4 +1,4 @@
-name: Build, Release, and Update TUF Metadata (thin mac + win)
+name: Build & Release (thin mac + win)
 
 on:
   push:
@@ -6,33 +6,27 @@ on:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
+    name: Build (${{ matrix.os }} • ${{ matrix.asset_suffix }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          # --- macOS thin builds by CPU arch ---
-          - os: macos-14            # Apple Silicon runner
+          # macOS thin builds by runner architecture
+          - os: macos-14
             spec_file: mac.spec
-            target_arch: arm64
             asset_suffix: mac-arm64
-          - os: macos-13            # Intel runner
+          - os: macos-13
             spec_file: mac.spec
-            target_arch: x86_64
             asset_suffix: mac-x86_64
-          # --- Windows ---
+          # Windows
           - os: windows-latest
             spec_file: win.spec
-            target_arch: windows
             asset_suffix: win-x86
 
-    runs-on: ${{ matrix.os }}
-
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
@@ -47,27 +41,20 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # (안전장치) 실제 러너 아키 확인
-      - name: Sanity-check runner arch (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "Expected target: ${{ matrix.target_arch }}"
-          uname -m
-          test "$(uname -m)" = "${{ matrix.target_arch }}" || echo "Runner arch differs from target_arch (this is OK; PyInstaller builds thin binaries)."
-
-      # --- Build ---
+      # Build (macOS) — no --target-arch when using a .spec file
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --clean --noconfirm --target-arch ${{ matrix.target_arch }} ${{ matrix.spec_file }}
+          pyinstaller --clean --noconfirm ${{ matrix.spec_file }}
 
+      # Build (Windows)
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           pyinstaller --clean --noconfirm ${{ matrix.spec_file }}
 
-      # --- Package ---
+      # Package (macOS)
       - name: Package (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -78,6 +65,7 @@ jobs:
           (cd dist && zip -r "../${ASSET}" .)
           echo "ASSET_PATH=${ASSET}" >> $GITHUB_ENV
 
+      # Package (Windows)
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -88,71 +76,29 @@ jobs:
           Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
           "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.asset_suffix }}
+          name: ${{ matrix.asset_suffix }}
           path: ${{ env.ASSET_PATH }}
 
   release:
+    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install tufup
-        run: pip install tufup
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          pattern: '*'
+          merge-multiple: true
+          path: release
 
-      - name: Create TUF key files from secrets
-        run: |
-          mkdir -p keys
-          echo "${{ secrets.TUF_ROOT_KEY }}" > keys/root.key
-          echo "${{ secrets.TUF_TARGETS_KEY }}" > keys/targets.key
-          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keys/snapshot.key
-          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keys/timestamp.key
-
-      - name: Create and Sign TUF metadata for all artifacts
-        env:
-          TUF_TARGETS_KEY_PASSWORD: ${{ secrets.TUF_TARGETS_KEY_PASSWORD }}
-          TUF_SNAPSHOT_KEY_PASSWORD: ${{ secrets.TUF_SNAPSHOT_KEY_PASSWORD }}
-          TUF_TIMESTAMP_KEY_PASSWORD: ${{ secrets.TUF_TIMESTAMP_KEY_PASSWORD }}
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION_PLAIN="${VERSION#v}"
-
-          # Add targets (mac 2종 + win)
-          TUF_KEY_PASSWORD="$TUF_TARGETS_KEY_PASSWORD" tufup targets add "$VERSION_PLAIN" "artifacts/app-mac-arm64/Chord-to-MIDI-GENERATOR-${VERSION}-mac-arm64.zip" keys
-          TUF_KEY_PASSWORD="$TUF_TARGETS_KEY_PASSWORD" tufup targets add "$VERSION_PLAIN" "artifacts/app-mac-x86_64/Chord-to-MIDI-GENERATOR-${VERSION}-mac-x86_64.zip" keys
-          TUF_KEY_PASSWORD="$TUF_TARGETS_KEY_PASSWORD" tufup targets add "$VERSION_PLAIN" "artifacts/app-win-x86/Chord-to-MIDI-GENERATOR-${VERSION}-win-x86.zip" keys
-
-          # Sign metadata
-          TUF_KEY_PASSWORD="$TUF_TARGETS_KEY_PASSWORD" tufup sign targets keys
-          TUF_KEY_PASSWORD="$TUF_SNAPSHOT_KEY_PASSWORD" tufup sign snapshot keys
-          TUF_KEY_PASSWORD="$TUF_TIMESTAMP_KEY_PASSWORD" tufup sign timestamp keys
-
-      - name: Push metadata to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository
-          publish_branch: gh-pages
-          force_orphan: true
-
-      - name: Create Release and Upload Assets
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: release/*.zip
           draft: false
           prerelease: false

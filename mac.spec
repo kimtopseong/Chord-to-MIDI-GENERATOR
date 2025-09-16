@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -29,7 +28,10 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='universal2',  # <--- 이 부분을 'universal2'로 수정
+    # NOTE:
+    # - Removed target_arch='universal2' to avoid fat-binary enforcement.
+    # - Thin build is determined by the runner's native architecture.
+    #   (arm64 on macos-14 runners, x86_64 on macos-13 runners)
     codesign_identity=None,
     entitlements_file=None,
 )

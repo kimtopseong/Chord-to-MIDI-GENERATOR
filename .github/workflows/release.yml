@@ -157,7 +157,7 @@ jobs:
           python add_targets.py 'artifacts/**/*.zip'
 
           # Verify the results
-          echo '--- repository tree ---
+          echo "--- repository tree ---"
           ls -al repository
           ls -al repository/metadata || true
           ls -al repository/targets  || true

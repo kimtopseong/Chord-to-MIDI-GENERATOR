@@ -1,4 +1,4 @@
-name: Build, Release, and Update TUF Metadata
+name: Build, Release, and Update TUF metadata
 
 on:
   push:
@@ -39,6 +39,17 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
 
+      - name: Create root.json from secret (macOS)
+        if: runner.os == 'macOS'
+        run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
+
+      - name: Create root.json from secret (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
+        run: Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
+
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm ${{ matrix.spec_file }}
 
@@ -76,8 +87,10 @@ jobs:
       contents: write
       
     steps:
+      # vvv 이 단계가 누락되어 tufup.json을 찾지 못했습니다 vvv
       - name: Check out repository
         uses: actions/checkout@v4
+      # ^^^ 여기까지 추가 ^^^
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -105,19 +118,23 @@ jobs:
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
+      - name: Prepare TUF repo dirs (non-interactive)
+        run: |
+          rm -rf repository
+          mkdir -p repository/metadata repository/targets
+
       - name: Create and Sign TUF metadata
         run: |
-          tufup init
+          # Checkout으로 tufup.json이 준비되었으므로 init이 정상 작동합니다.
+          yes | tufup init
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
-          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
-          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
-
-          tufup sign targets keys
-          tufup sign snapshot keys
-          tufup sign timestamp keys
-
+          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip"
+          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip"
+          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip"
+          tufup sign targets
+          tufup sign snapshot
+          tufup sign timestamp
       - name: Push metadata to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3
         with:

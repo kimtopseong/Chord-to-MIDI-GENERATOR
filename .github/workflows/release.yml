@@ -1,4 +1,4 @@
-name: Build, Release, and Update TUF Metadata
+name: Build, Release, and Update TUF metadata
 
 on:
   push:
@@ -87,6 +87,11 @@ jobs:
       contents: write
       
     steps:
+      # vvv 이 단계가 누락되어 tufup.json을 찾지 못했습니다 vvv
+      - name: Check out repository
+        uses: actions/checkout@v4
+      # ^^^ 여기까지 추가 ^^^
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -100,15 +105,13 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Create TUF config and key files from secrets
+      - name: Create TUF key files from secrets
         env:
-          TUF_CONFIG_JSON: ${{ secrets.TUF_CONFIG_JSON }}
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
         run: |
-          printf "%s" "$TUF_CONFIG_JSON" > tufup.json
           mkdir -p keys
           printf "%s" "$TUF_ROOT_KEY" > keys/root
           printf "%s" "$TUF_TARGETS_KEY" > keys/targets
@@ -117,7 +120,9 @@ jobs:
 
       - name: Create and Sign TUF metadata
         run: |
+          # Checkout으로 tufup.json이 준비되었으므로 init이 정상 작동합니다.
           tufup init
+
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
           tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys

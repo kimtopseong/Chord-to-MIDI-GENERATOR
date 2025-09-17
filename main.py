@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.2"
+CURRENT_VERSION = "1.1.0"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -63,24 +63,24 @@ class App(ctk.CTk):
     ROMAN_PATTERN = r'(?:VII|VI|V|IV|III|II|I)'
     ROMAN_RE = re.compile(fr'(?i)^([b#]?)({ROMAN_PATTERN})$')
     
-    @staticmethod
-    def resource_path(relative_path):
-        try: base_path = sys._MEIPASS
-        except Exception: base_path = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_path, relative_path)
-    
-    @dataclass
-    class ParsedChord:
-        root: str
-        quality: str
-        tensions: List[str] = field(default_factory=list)
-        paren_contents: List[str] = field(default_factory=list)
-        bass_note: Optional[str] = None
-        omissions: List[int] = field(default_factory=list)
-        is_roman: bool = False
-        roman_symbol: Optional[str] = None
-        seventh: Optional[str] = None
-        alterations: List[str] = field(default_factory=list)
+    from pathlib import Path
+import sys, os
+
+@staticmethod
+def resource_path(relative_path: str) -> str:
+    """
+    Locate bundled resources reliably across dev & PyInstaller runtime.
+    On macOS .app, base is Contents/MacOS (next to the executable).
+    """
+    if getattr(sys, "frozen", False):
+        # macOS app bundle
+        if sys.platform == "darwin" and ".app/" in sys.executable:
+            base = Path(sys.executable).resolve().parent
+        else:
+            base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base = Path(__file__).resolve().parent
+    return str(base / relative_path)
 
     @staticmethod
     def prefers_sharps(key: str) -> bool: return App.KEY_PREFERS_SHARPS.get(key, True)

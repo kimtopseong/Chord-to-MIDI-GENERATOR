@@ -19,23 +19,31 @@ jobs:
         include:
           - os: macos-14
             asset_suffix: mac-arm64
-            build_cmd: pyinstaller --noconfirm --windowed main.py
+            build_cmd: |
+              pyinstaller --noconfirm --windowed                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
-              ditto -c -k --sequesterRsrc --keepParent "dist" "$ASSET"
+              ditto -c -k --sequesterRsrc --keepParent "dist/Chord-to-MIDI-GENERATOR.app" "$ASSET"
               echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: macos-13
             asset_suffix: mac-x86_64
-            build_cmd: pyinstaller --noconfirm --windowed main.py
+            build_cmd: |
+              pyinstaller --noconfirm --windowed                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-x86_64.zip"
-              ditto -c -k --sequesterRsrc --keepParent "dist" "$ASSET"
+              ditto -c -k --sequesterRsrc --keepParent "dist/Chord-to-MIDI-GENERATOR.app" "$ASSET"
               echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: windows-latest
             asset_suffix: win-x86
-            build_cmd: pyinstaller --noconfirm --windowed main.py
+            build_cmd: >
+              pyinstaller --noconfirm --windowed
+              --name "Chord-to-MIDI-GENERATOR"
+              --add-data "pro_theme.json;."
+              --add-data "loading.png;."
+              --add-data "root.json;."
+              main.py
             zip_cmd: |
               $VERSION = "${{ github.ref_name }}"
               $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"

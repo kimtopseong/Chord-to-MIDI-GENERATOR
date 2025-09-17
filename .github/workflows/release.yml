@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build - ${{ matrix.asset_suffix }}
@@ -15,14 +18,29 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            spec_file: mac.spec
             asset_suffix: mac-arm64
+            build_cmd: pyinstaller --noconfirm --windowed main.py
+            zip_cmd: |
+              VERSION="${{ github.ref_name }}"
+              ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
+              ditto -c -k --sequesterRsrc --keepParent "dist" "$ASSET"
+              echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: macos-13
-            spec_file: mac.spec
             asset_suffix: mac-x86_64
+            build_cmd: pyinstaller --noconfirm --windowed main.py
+            zip_cmd: |
+              VERSION="${{ github.ref_name }}"
+              ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-x86_64.zip"
+              ditto -c -k --sequesterRsrc --keepParent "dist" "$ASSET"
+              echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: windows-latest
-            spec_file: win.spec
             asset_suffix: win-x86
+            build_cmd: pyinstaller --noconfirm --windowed main.py
+            zip_cmd: |
+              $VERSION = "${{ github.ref_name }}"
+              $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"
+              Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
+              "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:
       - name: Checkout
@@ -38,40 +56,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
-
-      - name: Create root.json from secret (macOS)
-        if: runner.os == 'macOS'
-        run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
-
-      - name: Create root.json from secret (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
-        run: Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
+          pip install pyinstaller
 
       - name: Build with PyInstaller
-        run: pyinstaller --noconfirm ${{ matrix.spec_file }}
+        run: ${{ matrix.build_cmd }}
 
-      - name: Package for macOS
-        if: runner.os == 'macOS'
+      - name: Package artifact
+        if: runner.os != 'Windows'
         shell: bash
-        run: |
-          VERSION="${{ github.ref_name }}"
-          SUFFIX="${{ matrix.asset_suffix }}"
-          ASSET="Chord-to-MIDI-GENERATOR-${VERSION}-${SUFFIX}.zip"
-          (cd dist && zip -r "../${ASSET}" .)
-          echo "ASSET_PATH=${ASSET}" >> $GITHUB_ENV
+        run: ${{ matrix.zip_cmd }}
 
-      - name: Package for Windows
+      - name: Package artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $VERSION = "${{ github.ref_name }}"
-          $SUFFIX = "${{ matrix.asset_suffix }}"
-          $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-$SUFFIX.zip"
-          Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
-          "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        run: ${{ matrix.zip_cmd }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -79,68 +77,74 @@ jobs:
           name: ${{ matrix.asset_suffix }}
           path: ${{ env.ASSET_PATH }}
 
-release:
-  name: Create GitHub Release
-  needs: build
-  runs-on: ubuntu-latest
-  permissions:
-    contents: write
+  release:
+    name: Create GitHub Release & Publish TUF metadata
+    needs: build
+    runs-on: ubuntu-latest
 
-  steps:
-    - name: Check out repository
-      uses: actions/checkout@v4
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install tufup
-      run: pip install tufup
+      - name: Install tufup
+        run: pip install tufup
 
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts/
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
 
-    - name: Create TUF key files from secrets
-      env:
-        TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
-        TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
-        TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
-        TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
-      run: |
-        mkdir -p keys
-        printf "%s" "$TUF_ROOT_KEY" > keys/root
-        printf "%s" "$TUF_TARGETS_KEY" > keys/targets
-        printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
-        printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
+      - name: Create TUF key files from secrets
+        env:
+          TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
+          TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
+          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
+          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+        run: |
+          mkdir -p keys
+          printf "%s" "$TUF_ROOT_KEY" > keys/root
+          printf "%s" "$TUF_TARGETS_KEY" > keys/targets
+          printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
+          printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-    # ✅ 대화형을 피하기 위해 repo 디렉터리를 미리 준비
-    - name: Prepare TUF repository dirs (non-interactive)
-      run: |
-        mkdir -p repository/metadata repository/targets
-        # root.json 시크릿을 쓰는 경우 초기 시드
-        if [ -f root.json ]; then
-          cp -f root.json repository/metadata/root.json
-        fi
+      - name: Prepare TUF repository dirs (non-interactive)
+        run: |
+          mkdir -p repository/metadata repository/targets
+          # If you keep a canonical root.json in the repo, seed it:
+          if [ -f root.json ]; then
+            cp -f root.json repository/metadata/root.json
+          fi
 
-    - name: Create and Sign TUF metadata
-      run: |
-        VERSION="${GITHUB_REF_NAME#v}"
+      - name: Create and Sign TUF metadata
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
 
-        tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip"
-        tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip"
-        tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip"
+          tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip"
+          tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip"
+          tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip"
 
-        tufup sign targets
-        tufup sign snapshot
-        tufup sign timestamp
+          tufup sign targets
+          tufup sign snapshot
+          tufup sign timestamp
 
-    - name: Push metadata to gh-pages branch
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./repository
-        publish_branch: gh-pages
-        force_orphan: true
+      - name: Push metadata to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repository
+          publish_branch: gh-pages
+          force_orphan: true
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          draft: false
+          prerelease: false

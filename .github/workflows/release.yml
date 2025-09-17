@@ -53,7 +53,10 @@ jobs:
       - name: Create root.json from secret (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Set-Content -LiteralPath root.json -Value "${{ secrets.TUF_ROOT_JSON }}" -Encoding utf8 -NoNewline
+        env:
+          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
+        run: |
+          Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
 
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm ${{ matrix.spec_file }}

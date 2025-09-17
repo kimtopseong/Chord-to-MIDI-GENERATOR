@@ -23,7 +23,6 @@ jobs:
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
-              # dist 전체를 패키징 (필요시 앱 폴더로 조정)
               ditto -c -k --sequesterRsrc --keepParent "dist" "$ASSET"
               echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: macos-13
@@ -117,12 +116,32 @@ jobs:
       - name: Prepare TUF repository dirs (non-interactive)
         run: |
           mkdir -p repository/metadata repository/targets
-          # (선택) 루트 메타데이터를 시드하고 싶으면 시크릿으로 전달
+
+      - name: Seed & validate root.json
+        shell: bash
+        run: |
+          set -euo pipefail
           if [ -n "${{ secrets.TUF_ROOT_JSON }}" ]; then
             printf "%s" "${{ secrets.TUF_ROOT_JSON }}" > repository/metadata/root.json
           elif [ -f root.json ]; then
             cp -f root.json repository/metadata/root.json
           fi
+          python - <<'PY'
+import json, sys, pathlib
+p = pathlib.Path("repository/metadata/root.json")
+if not p.exists():
+    print("ERROR: repository/metadata/root.json is missing. Provide TUF_ROOT_JSON secret or commit root.json.", file=sys.stderr)
+    sys.exit(1)
+try:
+    json.loads(p.read_text(encoding="utf-8"))
+    print("root.json OK")
+except Exception as e:
+    print("root.json invalid JSON:", e, file=sys.stderr)
+    print("----- BEGIN root.json HEAD -----")
+    print(p.read_text(encoding="utf-8")[:400])
+    print("----- END root.json HEAD -----")
+    sys.exit(1)
+PY
 
       - name: Create and Sign TUF metadata
         shell: bash
@@ -130,17 +149,17 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
-          # ⚠️ tufup 0.9.0은 targets add에 key_dirs(=keys)가 3번째 위치 인자로 필요
+          # add targets (requires key_dirs positional argument in tufup 0.9.0)
           tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip" keys
           tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip" keys
           tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip" keys
 
-          # sign 서브커맨드에는 keys 인자 넣지 말 것
-          tufup sign targets
-          tufup sign snapshot
-          tufup sign timestamp
+          # sign also requires key_dirs in tufup 0.9.0
+          tufup sign targets keys
+          tufup sign snapshot keys
+          tufup sign timestamp keys
 
-          # 디버그용 리스트
+          # debug list
           find repository -maxdepth 2 -type f -print
 
       - name: Publish metadata to gh-pages

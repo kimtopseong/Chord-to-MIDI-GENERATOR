@@ -39,7 +39,7 @@ jobs:
             zip_cmd: |
               $VERSION = "${{ github.ref_name }}"
               $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"
-              Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
+              Compress-Archive -Path dist\\* -DestinationPath $ASSET -Force
               "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:
@@ -117,16 +117,41 @@ jobs:
         run: |
           mkdir -p repository/metadata repository/targets
 
-      - name: Seed & validate root.json
+      - name: Seed & validate root.json (prefer repo file)
         shell: bash
+        env:
+          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
+          TUF_ROOT_JSON_B64: ${{ secrets.TUF_ROOT_JSON_B64 }}
         run: |
           set -euo pipefail
-          if [ -n "${{ secrets.TUF_ROOT_JSON }}" ]; then
-            printf "%s" "${{ secrets.TUF_ROOT_JSON }}" > repository/metadata/root.json
-          elif [ -f root.json ]; then
+          if [ -f root.json ]; then
+            echo "Using repo root.json"
             cp -f root.json repository/metadata/root.json
+          elif [ -n "${TUF_ROOT_JSON_B64:-}" ]; then
+            echo "Decoding TUF_ROOT_JSON_B64"
+            echo "$TUF_ROOT_JSON_B64" | base64 -d > repository/metadata/root.json
+          elif [ -n "${TUF_ROOT_JSON:-}" ]; then
+            echo "Using plaintext TUF_ROOT_JSON secret"
+            printf "%s" "$TUF_ROOT_JSON" > repository/metadata/root.json
+          else
+            echo "ERROR: No root.json available (neither repo file nor secrets)"
+            exit 1
           fi
-          python -c "import json,sys; import pathlib; p=pathlib.Path('repository/metadata/root.json'); p.exists() or (_ for _ in ()).throw(SystemExit('ERROR: repository/metadata/root.json missing')); json.loads(p.read_text(encoding='utf-8')); print('root.json OK')"
+
+          python - <<'PY'
+import json, sys, pathlib, textwrap
+p = pathlib.Path("repository/metadata/root.json")
+try:
+    data = p.read_text(encoding="utf-8")
+    json.loads(data)
+    print("root.json OK (length:", len(data), ")")
+except Exception as e:
+    print("root.json invalid JSON:", e, file=sys.stderr)
+    print("----- HEAD -----")
+    print(data[:400])
+    print("----- END HEAD -----")
+    sys.exit(1)
+PY
 
       - name: Create and Sign TUF metadata
         shell: bash

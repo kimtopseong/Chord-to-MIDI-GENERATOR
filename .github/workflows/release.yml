@@ -118,23 +118,25 @@ jobs:
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-      - name: Prepare TUF repo dirs (non-interactive)
-        run: |
-          rm -rf repository
-          mkdir -p repository/metadata repository/targets
-
       - name: Create and Sign TUF metadata
         run: |
           # Checkout으로 tufup.json이 준비되었으므로 init이 정상 작동합니다.
-          yes | tufup init
+          if [ -f tufup.json ]; then
+            echo "tufup.json present; skipping tufup init."
+          else
+            yes '' | tufup init
+          fi
+
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip"
-          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip"
-          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip"
-          tufup sign targets
-          tufup sign snapshot
-          tufup sign timestamp
+          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
+          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
+          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
+
+          tufup sign targets keys
+          tufup sign snapshot keys
+          tufup sign timestamp keys
+
       - name: Push metadata to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3
         with:

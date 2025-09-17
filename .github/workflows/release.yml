@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-14 # Apple Silicon Runner
             spec_file: mac.spec
             asset_suffix: mac-arm64
-          - os: macos-13
+          - os: macos-13 # Intel Runner
             spec_file: mac.spec
             asset_suffix: mac-x86_64
           - os: windows-latest
@@ -46,10 +46,14 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
 
-      - name: Create root.json from secret
-        env:
-          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
+      - name: Create root.json from secret (macOS)
+        if: runner.os == 'macOS'
         run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
+
+      - name: Create root.json from secret (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Set-Content -LiteralPath root.json -Value "${{ secrets.TUF_ROOT_JSON }}" -Encoding utf8 -NoNewline
 
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm ${{ matrix.spec_file }}
@@ -117,56 +121,28 @@ jobs:
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-      - name: Prepare repository directories
-        run: mkdir -p repository/metadata repository/targets keys
-
       - name: Create and Sign TUF metadata for all artifacts
         run: |
-          # Create a python script to add targets and sign
-          cat << 'EOF' > add_targets.py
-          import glob, logging, sys, shutil
-          from pathlib import Path
-          from tufup.repo import Repository
+          # 1. tufup 저장소를 초기화합니다. (가장 중요)
+          tufup init keys
 
-          logging.basicConfig(level=logging.INFO)
-          repo = Repository.from_config()
-          targets_dir = repo.targets_dir
-          targets_dir.mkdir(exist_ok=True)
+          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          zip_files_to_add = []
-          for pattern in sys.argv[1:]:
-              zip_files_to_add.extend(glob.glob(pattern, recursive=True))
-          
-          if not zip_files_to_add:
-              logging.error("No zip files found to add as targets.")
-              sys.exit(1)
+          # 2. 각 빌드 결과물에 대해 targets add 실행
+          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
+          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
+          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
 
-          for file_path_str in zip_files_to_add:
-              file_path = Path(file_path_str)
-              destination_path = targets_dir / file_path.name
-              shutil.copy(str(file_path), str(destination_path))
-              repo.roles.add_or_update_target(local_path=destination_path)
-              logging.info(f"Added target: {destination_path.name}")
+          # 3. 모든 변경사항에 대해 서명
+          tufup sign targets keys
+          tufup sign snapshot keys
+          tufup sign timestamp keys
 
-          logging.info("Signing and publishing all metadata changes...")
-          repo.publish_changes(private_key_dirs=['keys'])
-          logging.info("Successfully updated TUF repository.")
-          EOF
-
-          # Run the script to add all zip files from the artifacts directory
-          python add_targets.py 'artifacts/**/*.zip'
-
-          # Verify the results
-          echo "--- repository tree ---"
-          ls -al repository
-          ls -al repository/metadata || true
-          ls -al repository/targets  || true
-
-      - name: Push metadata (and targets) to gh-pages
+      - name: Push metadata to gh-pages branch
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository    # metadata/와 targets/ 동시 게시
+          publish_dir: ./repository
           publish_branch: gh-pages
           force_orphan: true
 

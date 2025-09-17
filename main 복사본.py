@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chord to MIDI Generator (v11.8 - UI Sorting and New 'blk' Chord)
-- Reordered the Quality dropdown list for better usability.
-- Added a new special chord quality: 'blk' (e.g., Cblk = A#aug/C).
-- Implemented parsing and voicing logic for the new 'blk' chord.
+Chord to MIDI Generator (v11.3 - User Provided Version with Final Feature Change)
+- User's provided layout and theme are preserved.
+- Changed the measure adjustment logic as per the user's final request.
+  The central entry now defines the step for the +/- buttons.
 """
 import sys
 import re
@@ -43,18 +43,22 @@ class App(ctk.CTk):
     KEY_PREFERS_SHARPS = {'C':True,'G':True,'D':True,'A':True,'E':True,'B':True,'F#':True,'C#':True, 'F':False,'Bb':False,'Eb':False,'Ab':False,'Db':False,'Gb':False,'Cb':False}
     MAJOR_DEGREE_TO_SEMITONES = {'I':0, 'II':2, 'III':4, 'IV':5, 'V':7, 'VI':9, 'VII':11}
     TENSIONS_LIST = ['b9', '9', '#9', '11', '#11', 'b13', '13']
-    # [REQUEST] Reorder list and add 'blk'
-    QUALITY_SYMBOLS = ["Major", "Minor", "7", "M7", "m7", "7b5", "M7b5", "m7b5", "dim", "dim7", "aug", "blk", "sus2", "sus4", "omit3", "omit5"]
+    QUALITY_SYMBOLS = ["Major", "Minor", "7", "M7", "m7", "m7b5", "dim", "dim7", "aug", "augM7", "aug7", "sus2", "sus4", "omit3", "omit5"]
     ROMAN_DEGREES_BUILDER = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII']
 
     @staticmethod
     def roman_degrees_for_key(key: str) -> List[str]:
+        """Return 12 chromatic roman options that match the key's accidental preference.
+        In sharp keys use # (e.g., #II), in flat keys use b (e.g., bII).
+        Order covers 0..11 semitone offsets from tonic.
+        """
         prefer_sharp = App.prefers_sharps(key)
         base = {0:'I', 2:'II', 4:'III', 5:'IV', 7:'V', 9:'VI', 11:'VII'}
         acc = {1:('#I','bII'), 3:('#II','bIII'), 6:('#IV','bV'), 8:('#V','bVI'), 10:('#VI','bVII')}
         out = []
         for sem in [0,1,2,3,4,5,6,7,8,9,10,11]:
-            if sem in base: out.append(base[sem])
+            if sem in base:
+                out.append(base[sem])
             else:
                 sharp_name, flat_name = acc[sem]
                 out.append(sharp_name if prefer_sharp else flat_name)
@@ -62,29 +66,22 @@ class App(ctk.CTk):
         
     ROMAN_PATTERN = r'(?:VII|VI|V|IV|III|II|I)'
     ROMAN_RE = re.compile(fr'(?i)^([b#]?)({ROMAN_PATTERN})$')
-    
+    CHORD_HEAD_RE = re.compile(fr'(?i)^([A-G][#b]?|[b#]?{ROMAN_PATTERN})')
+    RECIPES = {"Major":[0,4,7],"Minor":[0,3,7],"7":[0,4,7,10],"M7":[0,4,7,11],"m7":[0,3,7,10],"m7b5":[0,3,6,10],"dim":[0,3,6],"dim7":[0,3,6,9],"aug":[0,4,8],"augM7":[0,4,8,11],"aug7":[0,4,8,10],"+":[0,4,8],"sus2":[0,2,7],"sus4":[0,5,7]}
+
     @staticmethod
     def resource_path(relative_path):
         try: base_path = sys._MEIPASS
         except Exception: base_path = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_path, relative_path)
-    
+    @staticmethod
     @dataclass
     class ParsedChord:
-        root: str
-        quality: str
-        tensions: List[str] = field(default_factory=list)
-        paren_contents: List[str] = field(default_factory=list)
-        bass_note: Optional[str] = None
-        omissions: List[int] = field(default_factory=list)
-        is_roman: bool = False
-        roman_symbol: Optional[str] = None
-        seventh: Optional[str] = None
-        alterations: List[str] = field(default_factory=list)
-
+        root: str; quality: str; tensions: List[str] = field(default_factory=list); bass_note: Optional[str] = None
+        omissions: List[int] = field(default_factory=list); is_roman: bool = False; roman_symbol: Optional[str] = None
+        seventh_implied: bool = False
     @staticmethod
     def prefers_sharps(key: str) -> bool: return App.KEY_PREFERS_SHARPS.get(key, True)
-    
     @staticmethod
     def name_to_pc(name: str) -> int:
         tbl = {'C':0,'B#':0,'C#':1,'Db':1,'D':2,'D#':3,'Eb':3,'E':4,'Fb':4,'F':5,'E#':5,'F#':6,'Gb':6,'G':7,'G#':8,'Ab':8,'A':9,'A#':10,'Bb':10,'B':11,'Cb':11}
@@ -93,10 +90,8 @@ class App(ctk.CTk):
         else: n = n[0].upper() + n[1:].lower()
         if n not in tbl: raise ValueError(f"Unknown note name: {n}")
         return tbl[n]
-
     @staticmethod
     def pc_to_name(pc: int, use_sharps: bool) -> str: return App.NOTE_NAMES_SHARP[pc%12] if use_sharps else App.NOTE_NAMES_FLAT[pc%12]
-    
     @staticmethod
     def parse_tensions(text: str) -> List[str]:
         if not text: return []
@@ -104,13 +99,14 @@ class App(ctk.CTk):
         if inner.startswith('(') and inner.endswith(')'): inner = inner[1:-1]
         if not inner: return []
         parts = [p.strip() for p in inner.split(',') if p.strip()]
-        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:5|9|11|13)', p.replace('+', '#').replace('-', 'b'))]
+        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:9|11|13)', p.replace('+', '#').replace('-', 'b'))]
         seen, out = set(), []
         for t in norm:
             core_num = ''.join(filter(str.isdigit, t))
             if core_num not in seen: out.append(t); seen.add(core_num)
         return out
-        
+    @staticmethod
+    def is_roman_token(tok: str) -> bool: return bool(App.ROMAN_RE.fullmatch(tok))
     @staticmethod
     def roman_to_pc_offset(key_root: str, roman: str) -> int:
         m = App.ROMAN_RE.fullmatch(roman)
@@ -119,80 +115,51 @@ class App(ctk.CTk):
         if acc.lower() == 'b': semis -= 1
         elif acc == '#': semis += 1
         return (App.name_to_pc(key_root) + semis) % 12
-
     @staticmethod
     def parse_chord_symbol(text: str, key: str) -> 'App.ParsedChord':
         s = text.strip()
         if not s: return App.ParsedChord(root='C', quality='Major')
-        
         bass_note = None
         if '/' in s:
             parts = s.split('/', 1); s = parts[0].strip()
             try: bass_note = App.pc_to_name(App.name_to_pc(parts[1].strip()), App.prefers_sharps(key))
             except ValueError: bass_note = None
-
-        omissions = []
-        if 'omit3' in s: omissions.append(3); s = s.replace('omit3', '').strip()
-        if 'omit5' in s: omissions.append(5); s = s.replace('omit5', '').strip()
-
-        paren_contents = []
+        tensions, omissions = [], []
         tens_match = re.search(r'\(.*\)', s)
         if tens_match:
-            tensions_str = tens_match.group(0)
-            paren_contents = App.parse_tensions(tensions_str)
-            s = s.replace(tensions_str, '').strip()
-
+            tensions_str = tens_match.group(0); tensions.extend(App.parse_tensions(tensions_str)); s = s.replace(tensions_str, '').strip()
         s = s.replace('maj7', 'M7').replace('Maj7','M7').replace('min','m').replace('-', 'm').replace('ø', 'm7b5').replace('°', 'dim')
-
+        if 'omit3' in s: omissions.append(3); s = s.replace('omit3', '').strip()
+        if 'omit5' in s: omissions.append(5); s = s.replace('omit5', '').strip()
+        head, rest, is_roman_flag = '', '', False
         m_roman = re.match(fr'(?i)^([b#]?{App.ROMAN_PATTERN})', s)
         if m_roman:
             head = m_roman.group(1); is_roman_flag = True; rest = s[len(head):].strip()
-            root = App.pc_to_name(App.roman_to_pc_offset(key, head), App.prefers_sharps(key))
         else:
             m_alpha = re.match(r'(?i)^([A-G][#b]?)', s)
             if m_alpha:
                 head = m_alpha.group(1); is_roman_flag = False; rest = s[len(head):].strip()
-                root = head[0].upper() + head[1:]
-            else: return App.ParsedChord(root='C', quality='Major')
-
-        quality, seventh, tensions, alterations = 'Major', None, [], []
-        rest_mut = rest
-
-        if '13' in rest_mut: tensions.append('13'); rest_mut = rest_mut.replace('13', '')
-        if '11' in rest_mut: tensions.append('11'); rest_mut = rest_mut.replace('11', '')
-        if '9' in rest_mut: tensions.append('9'); rest_mut = rest_mut.replace('9', '')
-        
-        sev_m = re.search(r'M7|m7|7|dim7', rest_mut)
-        if sev_m:
-            sev_str = sev_m.group(0)
-            seventh = 'm7' if sev_str == '7' else sev_str
-            rest_mut = rest_mut.replace(sev_str, '')
-            if sev_str == 'm7': quality = 'Minor'
-            elif sev_str == 'dim7': quality = 'dim'
-        elif tensions or paren_contents:
-            is_minor_in_parens = any('m' in p for p in paren_contents)
-            if not is_minor_in_parens: seventh = 'm7'
-
-        if 'sus4' in rest_mut: quality = 'sus4'; rest_mut = rest_mut.replace('sus4', '')
-        elif 'sus2' in rest_mut: quality = 'sus2'; rest_mut = rest_mut.replace('sus2', '')
-        elif 'blk' in rest_mut: quality = 'blk'; rest_mut = rest_mut.replace('blk', '')
-        elif 'aug' in rest_mut or '+' in rest_mut: quality = 'aug'; rest_mut = rest_mut.replace('aug','').replace('+','')
-        elif 'dim' in rest_mut: quality = 'dim'; rest_mut = rest_mut.replace('dim','')
-        elif 'm' in rest_mut: quality = 'Minor'; rest_mut = rest_mut.replace('m','')
-        
-        if is_roman_flag and head.islower() and not rest:
-             if head.upper() in ['II','III','VI']: quality = 'Minor'
-             elif head.upper() == 'VII': quality = 'dim'
-        
-        if 'b5' in rest_mut: alterations.append('b5')
-        if '#5' in rest_mut: alterations.append('#5')
-        
-        if 'm7b5' in rest: quality, seventh, alterations = 'dim', 'm7', []
-        
-        return App.ParsedChord(root=root, quality=quality, tensions=tensions, paren_contents=paren_contents,
-                               bass_note=bass_note, omissions=omissions, is_roman=is_roman_flag,
-                               roman_symbol=head, seventh=seventh, alterations=alterations)
-
+            else:
+                return App.ParsedChord(root='C', quality='Major', bass_note=bass_note, tensions=tensions, omissions=omissions)
+        qual, seventh_implied = "Major", False
+        if '13' in rest: tensions.append('13'); rest = rest.replace('13', '7' if '7' not in rest else ''); seventh_implied = True
+        if '9' in rest: tensions.append('9'); rest = rest.replace('9', '7' if '7' not in rest else ''); seventh_implied = True
+        if '11' in rest: tensions.append('11'); rest = rest.replace('11', '')
+        if is_roman_flag:
+            pc = App.roman_to_pc_offset(key, head); root = App.pc_to_name(pc, App.prefers_sharps(key))
+            if head.islower() and not rest:
+                if head.upper() in ['II', 'III', 'VI']: qual = 'Minor'
+                elif head.upper() == 'VII': qual = 'dim'
+        else: root = head[0].upper() + head[1:]
+        qual_m = re.match(r'(augM7|aug7|M7|m7(b5)?|dim7|m|7|dim|\+|aug|sus2|sus4)', rest, flags=re.I)
+        if qual_m:
+            q = qual_m.group(1)
+            if q.lower() == 'm': qual = 'Minor'
+            elif q.lower() in ('aug', '+'): qual = 'aug'
+            else: qual = q
+        elif rest.startswith('m'): qual = 'Minor'
+        final_tensions = sorted(list(set(tensions)), key=lambda x: int(''.join(filter(str.isdigit, x))))
+        return App.ParsedChord(root=root, quality=qual, tensions=final_tensions, bass_note=bass_note, omissions=omissions, is_roman=is_roman_flag, roman_symbol=head, seventh_implied=seventh_implied)
     @staticmethod
     def build_string_from_parsed(p: 'App.ParsedChord', is_roman: bool, key: str) -> str:
         if is_roman:
@@ -208,131 +175,68 @@ class App(ctk.CTk):
                     raised_pc = (diff - 1 + 12) % 12; flatted_pc = (diff + 1) % 12
                     if use_sharps and raised_pc in sem_to_deg: base = '#' + sem_to_deg[raised_pc]
                     elif not use_sharps and flatted_pc in sem_to_deg: base = 'b' + sem_to_deg[flatted_pc]
-                    else: base = 'b' + sem_to_deg.get(flatted_pc, 'I')
+                    else:
+                        if raised_pc in sem_to_deg: base = '#' + sem_to_deg[raised_pc]
+                        elif flatted_pc in sem_to_deg: base = 'b' + sem_to_deg[flatted_pc]
                 base = base or 'I'
         else: base = p.root
-
-        qual_str = ''
-        if p.quality == 'Minor': qual_str = 'm'
-        elif p.quality == 'dim' and not (p.seventh == 'm7' or p.seventh == 'dim7'): qual_str = 'dim'
-        elif p.quality == 'aug': qual_str = 'aug'
-        elif p.quality == 'blk': qual_str = 'blk'
-        elif p.quality == 'sus2': qual_str = 'sus2'
-        elif p.quality == 'sus4': qual_str = 'sus4'
-
-        highest_tension_num = 0
-        if p.tensions:
-            highest_tension_num = max([int(re.sub(r'[^0-9]','',t)) for t in p.tensions])
-
-        num_part = ''
-        sev_prefix = ''
-        if highest_tension_num > 7:
-            num_part = str(highest_tension_num)
-            if p.seventh == 'M7': sev_prefix = 'M'
-        elif p.seventh:
-            num_part = '7'
-            if p.seventh == 'M7': sev_prefix = 'M'
-            elif p.seventh == 'dim7': qual_str, num_part = '', 'dim7'
-
-        if p.quality == 'dim' and p.seventh == 'm7':
-            qual_str, sev_prefix, num_part, alt_str = '', 'm', '7b5', ''
-        else:
-            alt_str = ''.join(p.alterations)
-
-        paren_str = f"({','.join(p.paren_contents)})" if p.paren_contents else ''
-        om_str = ''.join([f"omit{o}" for o in p.omissions])
+        q = p.quality; qual_str = '' if q == 'Major' else ('m' if q == 'Minor' else q)
+        om_str = ''.join([f"omit{o}" for o in p.omissions]); tens_str = f"({','.join(p.tensions)})" if p.tensions else ''
         bass_str = f"/{p.bass_note}" if p.bass_note and p.bass_note != p.root else ""
-
-        return f"{base}{qual_str}{sev_prefix}{num_part}{alt_str}{om_str}{paren_str}{bass_str}"
-
+        return f"{base}{qual_str}{om_str}{tens_str}{bass_str}"
+    @staticmethod
+    def apply_tensions(base: List[int], tensions: List[str], omit5: bool) -> List[int]:
+        out = base[:]; tension_map = {'9':14, 'b9':13, '#9':15, '11':17, '#11':18, '13':21, 'b13':20}
+        if omit5 and any(t in tensions for t in ['#11','b13']): out = [iv for iv in out if iv % 12 != 7]
+        for t in tensions:
+            if t in tension_map: out.append(tension_map[t])
+        return sorted(list(set(out)))
     @staticmethod
     def build_voicing(parsed: 'App.ParsedChord', omit5_on_conflict: bool, omit_duplicated_bass: bool) -> List[int]:
-        root_pc = App.name_to_pc(parsed.root)
-        intervals = []
-        
-        if parsed.quality == 'blk':
-            # blk is special: Root of aug triad is M2 below the stated root/bass
-            # Intervals are relative to the stated root, which is the bass
-            # e.g for Cblk, root is C, notes are A#aug/C -> C bass, A#-D-F# chord
-            # Intervals from C(0) are D(4), F#(6), A#(10)
-            intervals.extend([2, 6, 10]) # M2, A4, m7 from the bass
-        else:
-            all_tensions = parsed.tensions + parsed.paren_contents
-
-            if parsed.quality == 'Minor': intervals.extend([0, 3, 7])
-            elif parsed.quality == 'dim': intervals.extend([0, 3, 6])
-            elif parsed.quality == 'aug': intervals.extend([0, 4, 8])
-            else: intervals.extend([0, 4, 7]) # Major default
-
-            if parsed.quality == 'sus2': intervals = [i for i in intervals if i not in [3,4]] + [2]
-            if parsed.quality == 'sus4': intervals = [i for i in intervals if i not in [3,4]] + [5]
-
-            if parsed.seventh == 'm7': intervals.append(10)
-            elif parsed.seventh == 'M7': intervals.append(11)
-            elif parsed.seventh == 'dim7': intervals.append(9)
-
-            if 'b5' in parsed.alterations: intervals = [i for i in intervals if i not in [7,8]] + [6]
-            if '#5' in parsed.alterations: intervals = [i for i in intervals if i not in [6,7]] + [8]
-
-            if 3 in parsed.omissions: intervals = [i for i in intervals if i not in [2,3,4,5]]
-            if 5 in parsed.omissions: intervals = [i for i in intervals if i not in [6,7,8]]
-
-            tension_map = {'9':14, 'b9':13, '#9':15, '11':17, '#11':18, '13':21, 'b13':20}
-            if omit5_on_conflict and any(t in all_tensions for t in ['#11','b13']):
-                intervals = [iv for iv in intervals if iv % 12 != 7]
-            for t in all_tensions:
-                if t in tension_map: intervals.append(tension_map[t])
-        
-        intervals = sorted(list(set(intervals)))
-
+        root_pc = App.name_to_pc(parsed.root); quality = parsed.quality
+        if parsed.seventh_implied:
+            if quality == 'Major': quality = '7'
+            elif quality == 'Minor': quality = 'm7'
+        recipe = App.RECIPES.get(quality, App.RECIPES.get(quality.replace('aug', '+'), App.RECIPES['Major']))
+        intervals = App.apply_tensions(recipe, parsed.tensions, omit5_on_conflict)
+        if 3 in parsed.omissions: intervals = [iv for iv in intervals if iv % 12 not in [3, 4]]
+        if 5 in parsed.omissions: intervals = [iv for iv in intervals if iv % 12 not in [6, 7, 8]]
         bass_pc = App.name_to_pc(parsed.bass_note) if parsed.bass_note else root_pc
         bass_midi_note = (App.BASE_OCTAVE - 12) + bass_pc
-        
-        # For 'blk' chords, the root of the chord part is different from the bass
-        chord_root_pc = (root_pc - 2 + 12) % 12 if parsed.quality == 'blk' else root_pc
-        
-        final_chord_notes = []; root_note_in_voicing = App.BASE_OCTAVE + chord_root_pc
-        
-        if 0 in intervals and parsed.quality != 'blk': final_chord_notes.append(root_note_in_voicing)
-        
-        sorted_intervals = sorted([iv for iv in intervals if iv != 0 or parsed.quality == 'blk'])
-        
+        final_chord_notes = []; root_note_in_voicing = App.BASE_OCTAVE + root_pc
+        if 0 in intervals: final_chord_notes.append(root_note_in_voicing)
+        sorted_intervals = sorted([iv for iv in intervals if iv != 0])
         last_note = root_note_in_voicing if final_chord_notes else App.BASE_OCTAVE + bass_pc
-        
         for iv in sorted_intervals:
             pitch_iv = iv; is_13th_tension = False
             if iv in [13, 14, 15]: pitch_iv -= 12
             elif iv in [17, 18]: pitch_iv -= 12
             elif iv in [20, 21]: pitch_iv -= 12; is_13th_tension = True
-
             note_pc = (root_pc + pitch_iv) % 12
-            
             candidate = (last_note // 12) * 12 + note_pc
             if candidate <= last_note: candidate += 12
-            
             if is_13th_tension and (candidate >= root_note_in_voicing + 20): candidate -= 12
-            
             final_chord_notes.append(candidate)
             final_chord_notes.sort(); last_note = final_chord_notes[-1]
-            
         if omit_duplicated_bass:
             final_chord_notes = [note for note in final_chord_notes if note % 12 != bass_pc]
-        
         final_notes = [bass_midi_note] + final_chord_notes
         return sorted(list(set(final_notes)))
 
     @staticmethod
     def split_measure_text(text: str) -> List[str]:
+        """Splits a measure's text into individual chord symbols."""
         return [part for part in text.split(' ') if part]
 
     @staticmethod
     def duration_ticks_for_n(n: int, tpb: int) -> List[int]:
+        """Calculates MIDI tick durations for n chords in a 4-beat measure."""
         if n <= 0: return []
         base_dur = (4 * tpb) // n
         rem = (4 * tpb) % n
         durations = [base_dur + 1 if i < rem else base_dur for i in range(n)]
         return durations
-
+    
     def __init__(self, splash_root):
         super().__init__()
         self.splash_root = splash_root
@@ -472,8 +376,9 @@ class App(ctk.CTk):
         self.log = ctk.CTkTextbox(self.bottom_tabs.tab("Log"), font=self.font_measure, wrap="none"); self.log.pack(expand=True, fill="both", padx=5, pady=5)
         
         self.context_menu = self._create_context_menu()
-        self.total_measures = 16
+        self.total_measures = 16 # 내부적으로 전체 마디 수를 관리하는 변수
 
+        # Add version label
         self.version_label = ctk.CTkLabel(self, text=f"v{CURRENT_VERSION}", font=ctk.CTkFont(size=12), text_color="gray50")
         self.version_label.grid(row=3, column=1, padx=10, pady=(0, 5), sticky="se")
         self.grid_rowconfigure(3, weight=0)
@@ -574,7 +479,12 @@ class App(ctk.CTk):
                 parts = App.split_measure_text(t); out = []
                 for p_str in parts:
                     parsed = App.parse_chord_symbol(p_str, key)
-                    out.append(App.build_string_from_parsed(parsed, is_roman=is_to_degree, key=key))
+                    if is_to_degree:
+                        if not parsed.is_roman: out.append(App.build_string_from_parsed(parsed, is_roman=True, key=key))
+                        else: out.append(p_str)
+                    else:
+                        if parsed.is_roman: out.append(App.build_string_from_parsed(parsed, is_roman=False, key=key))
+                        else: out.append(p_str)
                 e.delete(0, "end"); e.insert(0, " ".join(out))
             except Exception as ex: self._log(f"Conversion error on '{t}': {ex}")
     def _reset_tensions(self):
@@ -582,27 +492,18 @@ class App(ctk.CTk):
         self._log("Tension selection reset.")
     def _on_build_and_insert(self):
         key = self.key_var.get()
+        is_degree_mode = self.mode_var.get() == self.i18n[self.lang_code]["degree"]
         root_selection = self.builder_root_var.get()
+        if is_degree_mode:
+            pc = App.roman_to_pc_offset(key, root_selection); actual_root = App.pc_to_name(pc, App.prefers_sharps(key))
+        else: actual_root = root_selection
         qual = self.builder_quality_var.get()
         selected_tensions = [t for t, v in self.tension_vars.items() if v.get()]
-        
-        qual_txt = qual if qual not in ["Major", "Minor"] else ('m' if qual == "Minor" else '')
-        
-        paren_tensions = [t for t in selected_tensions if re.search(r'[b#]', t)]
-        text_tensions = [t for t in selected_tensions if not re.search(r'[b#]', t)]
-        
-        tens_txt = "".join(sorted(text_tensions, key=lambda x: int(re.sub(r'[^0-9]', '', x))))
-        if selected_tensions and not any(c in qual_txt for c in ['7','M','m','d','a','s']):
-            if not tens_txt: tens_txt = '7'
-            
-        paren_txt = f"({','.join(paren_tensions)})" if paren_tensions else ''
-            
-        chord_str_to_parse = f"{root_selection}{qual_txt}{tens_txt}{paren_txt}"
-        
-        parsed = App.parse_chord_symbol(chord_str_to_parse, key)
-        is_degree_mode = self.mode_var.get() == self.i18n[self.lang_code]["degree"]
+        tens_str = ",".join(selected_tensions)
+        qual_txt = "" if qual == "Major" else ("m" if qual=="Minor" else qual); tens_txt = f"({tens_str})" if tens_str else ""
+        alphabet_chord = f"{actual_root}{qual_txt}{tens_txt}"
+        parsed = App.parse_chord_symbol(alphabet_chord, key)
         sym = App.build_string_from_parsed(parsed, is_roman=is_degree_mode, key=key)
-        
         target = self.last_focused_entry or (self.measure_entries[0] if self.measure_entries else None)
         if target:
             cur = target.get().strip(); target.delete(0, "end"); target.insert(0, (cur + " " + sym).strip())
@@ -634,8 +535,9 @@ class App(ctk.CTk):
             mid.save(path); self._log(f"Saved MIDI: {path}"); messagebox.showinfo("MIDI", f"Saved: {path}")
         except Exception as e:
             self._log(f"FATAL Error generating MIDI: {e}"); messagebox.showerror("Error", f"Failed to generate MIDI:\n{e}")
-
+    
 if __name__ == "__main__":
+    # tufup 업데이트 확인
     from pathlib import Path
     import sys
     import os
@@ -643,22 +545,36 @@ if __name__ == "__main__":
     try:
         from tufup.client import Client
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
+
+        # 사용자 홈 폴더 내에 tufup 데이터가 저장될 쓰기 가능한 디렉터리 사용
         writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'
         metadata_dir = writable_dir / 'metadata'
         os.makedirs(metadata_dir, exist_ok=True)
+
+        # 번들된 root.json 콘텐츠 로드
         bundled_root_json_path_str = App.resource_path('root.json')
         bundled_root_json_content = Path(bundled_root_json_path_str).read_text()
+
+        # 신뢰 부트스트랩을 위해 metadata 디렉터리에 root.json을 수동으로 배치
+        # 단, 파일이 존재하지 않을 경우에만 생성하여 덮어쓰기 방지
         root_json_path = metadata_dir / 'root.json'
         if not root_json_path.exists():
             root_json_path.write_text(bundled_root_json_content)
+
         if getattr(sys, 'frozen', False):
+            # frozen 앱의 경우 설치 디렉터리는 .app이 있는 위치
+            # sys.executable은 .../Contents/MacOS/executable이므로 3단계 상위 폴더
             app_install_dir = Path(sys.executable).parent.parent.parent
         else:
+            # 스크립트의 경우 스크립트가 있는 디렉터리
             app_install_dir = Path(__file__).parent
+
         METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/metadata'
         TARGET_BASE_URL = 'https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/'
+
         target_dir = writable_dir / 'targets'
         os.makedirs(target_dir, exist_ok=True)
+
         client = Client(
             app_name=APP_NAME,
             app_install_dir=str(app_install_dir),
@@ -668,9 +584,14 @@ if __name__ == "__main__":
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
         )
+        
+        # 업데이트 확인 실행
         client.check_for_updates()
+        
     except Exception as e:
+        # 오류를 기록하고 계속 진행. 업데이트 확인 실패로 앱이 충돌하는 것을 방지
         print(f"Error during update check: {e}")
+    # tufup 업데이트 확인 종료
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)
     try:

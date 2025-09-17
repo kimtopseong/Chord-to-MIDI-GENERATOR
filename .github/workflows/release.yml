@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14 # Apple Silicon Runner
+          - os: macos-14
             spec_file: mac.spec
             asset_suffix: mac-arm64
-          - os: macos-13 # Intel Runner
+          - os: macos-13
             spec_file: mac.spec
             asset_suffix: mac-x86_64
           - os: windows-latest
@@ -87,11 +87,6 @@ jobs:
       contents: write
       
     steps:
-      # vvv 이 단계가 누락되어 있었습니다 vvv
-      - name: Check out repository
-        uses: actions/checkout@v4
-      # ^^^ 여기까지 추가 ^^^
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -105,20 +100,22 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Create TUF key files from secrets
+      - name: Create TUF config and key files from secrets
         env:
+          TUF_CONFIG_JSON: ${{ secrets.TUF_CONFIG_JSON }}
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
         run: |
+          printf "%s" "$TUF_CONFIG_JSON" > tufup.json
           mkdir -p keys
           printf "%s" "$TUF_ROOT_KEY" > keys/root
           printf "%s" "$TUF_TARGETS_KEY" > keys/targets
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-      - name: Create and Sign TUF metadata for all artifacts
+      - name: Create and Sign TUF metadata
         run: |
           tufup init
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')

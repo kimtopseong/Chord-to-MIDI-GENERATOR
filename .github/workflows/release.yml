@@ -1,4 +1,4 @@
-name: Build, Release, and Update TUF metadata
+name: Build, Release, and Update TUF metadata (onedir)
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           - os: macos-14
             asset_suffix: mac-arm64
             build_cmd: |
-              pyinstaller --noconfirm --windowed                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
+              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
@@ -29,7 +29,7 @@ jobs:
           - os: macos-13
             asset_suffix: mac-x86_64
             build_cmd: |
-              pyinstaller --noconfirm --windowed                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
+              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-x86_64.zip"
@@ -38,7 +38,7 @@ jobs:
           - os: windows-latest
             asset_suffix: win-x86
             build_cmd: >
-              pyinstaller --noconfirm --windowed
+              pyinstaller --noconfirm --windowed --onedir
               --name "Chord-to-MIDI-GENERATOR"
               --add-data "pro_theme.json;."
               --add-data "loading.png;."
@@ -47,7 +47,7 @@ jobs:
             zip_cmd: |
               $VERSION = "${{ github.ref_name }}"
               $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"
-              Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
+              Compress-Archive -Path dist\Chord-to-MIDI-GENERATOR\* -DestinationPath $ASSET -Force
               "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:
@@ -141,7 +141,7 @@ jobs:
           elif [ -n "${TUF_ROOT_JSON:-}" ]; then
             echo "Using plaintext TUF_ROOT_JSON secret"
             printf "%s" "$TUF_ROOT_JSON" > repository/metadata/root.json
-          else
+          else:
             echo "ERROR: No root.json available (neither repo file nor secrets)"
             exit 1
           fi

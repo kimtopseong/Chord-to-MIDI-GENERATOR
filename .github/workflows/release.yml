@@ -39,17 +39,6 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
 
-      - name: Create root.json from secret (macOS)
-        if: runner.os == 'macOS'
-        run: echo "${{ secrets.TUF_ROOT_JSON }}" > root.json
-
-      - name: Create root.json from secret (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
-        run: Set-Content -LiteralPath root.json -Value $env:TUF_ROOT_JSON -Encoding utf8 -NoNewline
-
       - name: Build with PyInstaller
         run: pyinstaller --noconfirm ${{ matrix.spec_file }}
 
@@ -87,10 +76,8 @@ jobs:
       contents: write
       
     steps:
-      # vvv 이 단계가 누락되어 tufup.json을 찾지 못했습니다 vvv
       - name: Check out repository
         uses: actions/checkout@v4
-      # ^^^ 여기까지 추가 ^^^
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -120,9 +107,7 @@ jobs:
 
       - name: Create and Sign TUF metadata
         run: |
-          # Checkout으로 tufup.json이 준비되었으므로 init이 정상 작동합니다.
           tufup init
-
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
           tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys

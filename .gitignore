@@ -1,7 +1,7 @@
 dist/
 build/ 
 venv/
-keys/
+key_bak/
 repository/
 __pycache__/
 .DS_Store

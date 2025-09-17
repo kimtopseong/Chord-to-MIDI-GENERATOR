@@ -39,7 +39,7 @@ jobs:
             zip_cmd: |
               $VERSION = "${{ github.ref_name }}"
               $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"
-              Compress-Archive -Path dist\\* -DestinationPath $ASSET -Force
+              Compress-Archive -Path dist\* -DestinationPath $ASSET -Force
               "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:
@@ -97,7 +97,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          path: artifacts
           merge-multiple: true
 
       - name: Create TUF key files from secrets
@@ -139,7 +139,7 @@ jobs:
           fi
 
           python - <<'PY'
-import json, sys, pathlib, textwrap
+import json, sys, pathlib
 p = pathlib.Path("repository/metadata/root.json")
 try:
     data = p.read_text(encoding="utf-8")

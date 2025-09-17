@@ -144,7 +144,7 @@ jobs:
           for file_path_str in zip_files_to_add:
               file_path = Path(file_path_str)
               destination_path = targets_dir / file_path.name
-              shutil.move(str(file_path), str(destination_path))
+              shutil.copy(str(file_path), str(destination_path))
               repo.roles.add_or_update_target(local_path=destination_path)
               logging.info(f"Added target: {destination_path.name}")
 

@@ -137,21 +137,7 @@ jobs:
             echo "ERROR: No root.json available (neither repo file nor secrets)"
             exit 1
           fi
-
-          python - <<-'PY'
-	import json, sys, pathlib
-	p = pathlib.Path("repository/metadata/root.json")
-	try:
-    	data = p.read_text(encoding="utf-8")
-    	json.loads(data)
-    	print("root.json OK (length:", len(data), ")")
-	except Exception as e:
-    	print("root.json invalid JSON:", e, file=sys.stderr)
-    	print("----- HEAD -----")
-    	print(data[:400])
-    	print("----- END HEAD -----")
-    	sys.exit(1)
-PY
+          python -c "import json,sys,pathlib; p=pathlib.Path('repository/metadata/root.json'); d=p.read_text(encoding='utf-8'); json.loads(d); print('root.json OK (length:', len(d), ')')"
 
       - name: Create and Sign TUF metadata
         shell: bash

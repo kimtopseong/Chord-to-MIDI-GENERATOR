@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-14 # Apple Silicon Runner
             spec_file: mac.spec
             asset_suffix: mac-arm64
-          - os: macos-13
+          - os: macos-13 # Intel Runner
             spec_file: mac.spec
             asset_suffix: mac-x86_64
           - os: windows-latest
@@ -87,6 +87,11 @@ jobs:
       contents: write
       
     steps:
+      # vvv 이 단계가 누락되어 있었습니다 vvv
+      - name: Check out repository
+        uses: actions/checkout@v4
+      # ^^^ 여기까지 추가 ^^^
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -100,34 +105,28 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Create TUF config and key files from secrets
+      - name: Create TUF key files from secrets
         env:
-          TUF_CONFIG_JSON: ${{ secrets.TUF_CONFIG_JSON }}
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
         run: |
-          printf "%s" "$TUF_CONFIG_JSON" > tufup.json
           mkdir -p keys
           printf "%s" "$TUF_ROOT_KEY" > keys/root
           printf "%s" "$TUF_TARGETS_KEY" > keys/targets
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-      - name: Create and Sign TUF metadata
+      - name: Create and Sign TUF metadata for all artifacts
         run: |
-          # 1. tufup 저장소를 초기화합니다.
           tufup init
-
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
           
-          # 2. 각 빌드 결과물에 대해 targets add 실행
           tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
           tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
           tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
 
-          # 3. 모든 변경사항에 대해 서명
           tufup sign targets keys
           tufup sign snapshot keys
           tufup sign timestamp keys

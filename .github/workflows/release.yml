@@ -79,75 +79,68 @@ jobs:
           name: ${{ matrix.asset_suffix }}
           path: ${{ env.ASSET_PATH }}
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
-    steps:
-      # vvv 이 단계가 누락되어 tufup.json을 찾지 못했습니다 vvv
-      - name: Check out repository
-        uses: actions/checkout@v4
-      # ^^^ 여기까지 추가 ^^^
+release:
+  name: Create GitHub Release
+  needs: build
+  runs-on: ubuntu-latest
+  permissions:
+    contents: write
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install tufup
-        run: pip install tufup
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Create TUF key files from secrets
-        env:
-          TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
-          TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
-          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
-          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
-        run: |
-          mkdir -p keys
-          printf "%s" "$TUF_ROOT_KEY" > keys/root
-          printf "%s" "$TUF_TARGETS_KEY" > keys/targets
-          printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
-          printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
+    - name: Install tufup
+      run: pip install tufup
 
-      - name: Create and Sign TUF metadata
-        run: |
-          # Checkout으로 tufup.json이 준비되었으므로 init이 정상 작동합니다.
-          if [ -f tufup.json ]; then
-            echo "tufup.json present; skipping tufup init."
-          else
-            yes '' | tufup init
-          fi
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts/
 
-          export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
-          tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
-          tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys
-          tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-win-x86.zip" keys
+    - name: Create TUF key files from secrets
+      env:
+        TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
+        TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
+        TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
+        TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+      run: |
+        mkdir -p keys
+        printf "%s" "$TUF_ROOT_KEY" > keys/root
+        printf "%s" "$TUF_TARGETS_KEY" > keys/targets
+        printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
+        printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-          tufup sign targets keys
-          tufup sign snapshot keys
-          tufup sign timestamp keys
+    # ✅ 대화형을 피하기 위해 repo 디렉터리를 미리 준비
+    - name: Prepare TUF repository dirs (non-interactive)
+      run: |
+        mkdir -p repository/metadata repository/targets
+        # root.json 시크릿을 쓰는 경우 초기 시드
+        if [ -f root.json ]; then
+          cp -f root.json repository/metadata/root.json
+        fi
 
-      - name: Push metadata to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository
-          publish_branch: gh-pages
-          force_orphan: true
+    - name: Create and Sign TUF metadata
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
 
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*.zip
-          draft: false
-          prerelease: false
+        tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip"
+        tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip"
+        tufup targets add "$VERSION" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip"
+
+        tufup sign targets
+        tufup sign snapshot
+        tufup sign timestamp
+
+    - name: Push metadata to gh-pages branch
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./repository
+        publish_branch: gh-pages
+        force_orphan: true

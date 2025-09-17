@@ -121,23 +121,42 @@ jobs:
         run: mkdir -p repository/metadata repository/targets keys
 
       - name: Create and Sign TUF metadata for all artifacts
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
-          VER=${GITHUB_REF_NAME#v}
+          # Create a python script to add targets and sign
+          cat << 'EOF' > add_targets.py
+          import glob, logging, sys, shutil
+          from pathlib import Path
+          from tufup.repo import Repository
 
-          # targets 등록
-          tufup targets add "$VER" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-arm64.zip" keys
-          tufup targets add "$VER" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-mac-x86_64.zip" keys
-          tufup targets add "$VER" "artifacts/win-x86/Chord-to-MIDI-GENERATOR-$GITHUB_REF_NAME-win-x86.zip" keys
+          logging.basicConfig(level=logging.INFO)
+          repo = Repository.from_config()
+          targets_dir = repo.targets_dir
+          targets_dir.mkdir(exist_ok=True)
+          
+          zip_files_to_add = []
+          for pattern in sys.argv[1:]:
+              zip_files_to_add.extend(glob.glob(pattern, recursive=True))
+          
+          if not zip_files_to_add:
+              logging.error("No zip files found to add as targets.")
+              sys.exit(1)
 
-          # 메타데이터 서명
-          tufup sign targets keys
-          tufup sign snapshot keys
-          tufup sign timestamp keys
+          for file_path_str in zip_files_to_add:
+              file_path = Path(file_path_str)
+              destination_path = targets_dir / file_path.name
+              shutil.move(str(file_path), str(destination_path))
+              repo.roles.add_or_update_target(local_path=destination_path)
+              logging.info(f"Added target: {destination_path.name}")
 
-          # 생성물 확인
+          logging.info("Signing and publishing all metadata changes...")
+          repo.publish_changes(private_key_dirs=['keys'])
+          logging.info("Successfully updated TUF repository.")
+          EOF
+
+          # Run the script to add all zip files from the artifacts directory
+          python add_targets.py 'artifacts/**/*.zip'
+
+          # Verify the results
           echo '--- repository tree ---
           ls -al repository
           ls -al repository/metadata || true

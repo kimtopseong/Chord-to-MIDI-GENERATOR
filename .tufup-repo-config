@@ -1,12 +1,7 @@
 {
     "app_name": "Chord-to-MIDI-GENERATOR",
     "app_version_attr": null,
-    "encrypted_keys": [
-        "root",
-        "targets",
-        "snapshot",
-        "timestamp"
-    ],
+    "encrypted_keys": [],
     "expiration_days": {
         "root": 365,
         "snapshot": 365,

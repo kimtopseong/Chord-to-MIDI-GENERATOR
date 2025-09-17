@@ -126,11 +126,11 @@ jobs:
 
       - name: Create and Sign TUF metadata for all artifacts
         run: |
-          # 1. tufup 저장소를 초기화합니다. (가장 중요)
-          tufup init keys
+          # 1. tufup 저장소를 초기화합니다.
+          tufup init
 
           export VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
+
           # 2. 각 빌드 결과물에 대해 targets add 실행
           tufup targets add "$VERSION" "artifacts/mac-arm64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-arm64.zip" keys
           tufup targets add "$VERSION" "artifacts/mac-x86_64/Chord-to-MIDI-GENERATOR-${{ github.ref_name }}-mac-x86_64.zip" keys

@@ -3,6 +3,8 @@ import sys
 import json
 import pathlib
 import logging
+import shutil
+import tarfile # Import tarfile
 from tufup.repo import Repository, DEFAULT_EXPIRATION_DAYS, Keys # Import Keys class
 from tufup.repo import Roles # Import Roles class
 
@@ -35,28 +37,45 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
-    # Add all artifact bundles for the current version
+    # Create a temporary directory to combine all platform bundles
+    combined_bundle_dir = pathlib.Path(artifacts_dir) / f"combined_bundle_{app_version}"
+    combined_bundle_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Created combined bundle directory: {combined_bundle_dir}")
+
+    # Copy all platform-specific zip files into the temporary directory
+    found_bundles = False
     for root, _, files in os.walk(artifacts_dir):
         for artifact_file in files:
-            # Filter for zip files that start with the app name and current version
-            # Account for 'v' prefix in artifact file names
             if artifact_file.startswith(f"{repository.app_name}-v{app_version}") and artifact_file.endswith(".zip"):
-                bundle_path = pathlib.Path(root) / artifact_file
-                logger.info(f"Adding bundle: {bundle_path}")
-                repository.add_bundle(
-                    new_bundle_dir=bundle_path,
-                    new_version=app_version,
-                    skip_patch=False, # We want patches
-                    custom_metadata=None,
-                    required=False
-                )
-                logger.info(f"Bundle added: {bundle_path}")
+                src_path = pathlib.Path(root) / artifact_file
+                dst_path = combined_bundle_dir / artifact_file
+                shutil.copy(src_path, dst_path)
+                logger.info(f"Copied {src_path} to {dst_path}")
+                found_bundles = True
+    
+    if not found_bundles:
+        logger.error(f"No artifact bundles found for version {app_version} in {artifacts_dir}")
+        sys.exit(1)
+
+    # Add the combined bundle to the repository
+    logger.info(f"Adding combined bundle for version: {app_version}")
+    repository.add_bundle(
+        new_bundle_dir=combined_bundle_dir, # Pass the combined directory
+        new_version=app_version,
+        skip_patch=False,
+        custom_metadata=None,
+        required=False
+    )
+    logger.info(f"Combined bundle added for version: {app_version}")
 
     # Publish changes (sign and save metadata)
-    # This will sign targets, snapshot, and timestamp.
     logger.info("Publishing changes (signing metadata)...")
     repository.publish_changes(private_key_dirs=[pathlib.Path(keys_dir)])
     logger.info("Metadata published successfully.")
+
+    # Clean up the temporary combined bundle directory
+    shutil.rmtree(combined_bundle_dir)
+    logger.info(f"Cleaned up combined bundle directory: {combined_bundle_dir}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:

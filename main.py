@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.12"
+CURRENT_VERSION = "1.1.13"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):

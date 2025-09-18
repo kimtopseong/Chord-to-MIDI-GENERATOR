@@ -81,6 +81,9 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     shutil.rmtree(combined_bundle_dir)
     logger.info(f"Cleaned up combined bundle directory: {combined_bundle_dir}")
 
+    # Explicitly persist the root.json with version number
+    repository.roles.persist_role(role_name='root')
+
 if __name__ == "__main__":
     if len(sys.argv) != 5:
         logger.error("Usage: python tuf_manager.py <app_version> <artifacts_dir> <keys_dir> <repo_dir>")

@@ -3,7 +3,8 @@ import sys
 import json
 import pathlib
 import logging
-from tufup.repo import Repository, DEFAULT_EXPIRATION_DAYS
+from tufup.repo import Repository, DEFAULT_EXPIRATION_DAYS, Keys # Import Keys class
+from tufup.repo import Roles # Import Roles class
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,37 +22,25 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
     
-    with open(config_path, 'r') as f:
-        config = json.load(f)
+    # Use Repository.from_config() to initialize the repository
+    # This will load keys and roles without trying to create new keys.
+    repository = Repository.from_config()
 
-    app_name = config.get('app_name', 'Chord-to-MIDI-GENERATOR')
-    expiration_days = config.get('expiration_days', DEFAULT_EXPIRATION_DAYS)
-    key_map = config.get('key_map')
-    encrypted_keys = config.get('encrypted_keys')
-    thresholds = config.get('thresholds')
-
-    repository = Repository(
-        app_name=app_name,
-        repo_dir=repo_dir,
-        keys_dir=keys_dir,
-        expiration_days=expiration_days,
-        key_map=key_map,
-        encrypted_keys=encrypted_keys,
-        thresholds=thresholds
-    )
-
-    # Initialize the repository (load keys and roles)
-    # This will load existing metadata from repo_dir/metadata
-    repository.initialize()
+    # Ensure the repository paths are correctly set, as from_config might use cwd
+    # This is important because the workflow runs in GITHUB_WORKSPACE, but repo_dir might be relative.
+    repository.repo_dir = pathlib.Path(repo_dir).resolve()
+    repository.keys_dir = pathlib.Path(keys_dir).resolve()
+    
+    # Ensure dirs exist (from Repository.initialize)
+    for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
+        path.mkdir(parents=True, exist_ok=True)
 
     # Add all artifact bundles for the current version
     for artifact_file in os.listdir(artifacts_dir):
         # Filter for zip files that start with the app name and current version
-        if artifact_file.startswith(f"{app_name}-{app_version}") and artifact_file.endswith(".zip"):
+        if artifact_file.startswith(f"{repository.app_name}-{app_version}") and artifact_file.endswith(".zip"):
             bundle_path = pathlib.Path(artifacts_dir) / artifact_file
             logger.info(f"Adding bundle: {bundle_path}")
-            # add_bundle will create the tar.gz and add it to targets.json
-            # It will also create patches if a previous version exists.
             repository.add_bundle(
                 new_bundle_dir=bundle_path,
                 new_version=app_version,

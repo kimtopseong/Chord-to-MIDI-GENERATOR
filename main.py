@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.16"
+CURRENT_VERSION = "1.1.17"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -638,7 +638,9 @@ class App(ctk.CTk):
 if __name__ == "__main__":
     from pathlib import Path
     import sys
-    import os
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('tufup').setLevel(logging.DEBUG)
 
     try:
         from tufup.client import Client

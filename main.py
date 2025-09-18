@@ -36,6 +36,26 @@ class ScrollableFrame(ctk.CTkFrame):
     def _on_canvas_configure(self, event): self.canvas.itemconfig(self.inner_id, width=event.width)
 
 class App(ctk.CTk):
+    @staticmethod
+    def resource_path(relative_path: str) -> str:
+        """Safe resource lookup for dev & PyInstaller runtime.
+        On macOS .app, base is Contents/MacOS (next to the executable)."""
+        import sys
+        from pathlib import Path
+        if getattr(sys, 'frozen', False):
+            if sys.platform == 'darwin' and '.app/' in sys.executable:
+                base = Path(sys.executable).resolve().parent
+            else:
+                base = Path(getattr(sys, '_MEIPASS', Path(sys.executable).resolve().parent))
+        else:
+            base = Path(__file__).resolve().parent
+        return str(base / relative_path)
+
+    def __init__(self, *args, splash_root=None, **kwargs):
+        kwargs.pop('splash_root', None)
+        super().__init__(*args, **kwargs)
+        self.splash_root = splash_root
+
     BASE_OCTAVE = 48
     NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
     NOTE_NAMES_FLAT  = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']

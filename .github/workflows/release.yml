@@ -141,7 +141,7 @@ jobs:
           elif [ -n "${TUF_ROOT_JSON:-}" ]; then
             echo "Using plaintext TUF_ROOT_JSON secret"
             printf "%s" "$TUF_ROOT_JSON" > repository/metadata/root.json
-          else:
+          else
             echo "ERROR: No root.json available (neither repo file nor secrets)"
             exit 1
           fi

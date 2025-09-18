@@ -147,19 +147,14 @@ jobs:
 
           rm -f repository/metadata/targets.json repository/metadata/snapshot.json
 
+          # Ensure repository directory is clean before starting
           rm -rf repository
           mkdir -p repository/metadata repository/targets
 
-          pwd
-          ls -la repository/metadata
+          # Seed & validate root.json (prefer repo file) - This step runs before this one.
+          # So root.json is already in repository/metadata/root.json when tuf_manager.py starts.
 
-          echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip" keys
-          echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip" keys
-          echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip" keys
-
-          tufup sign targets keys
-          tufup sign snapshot keys
-          tufup sign timestamp keys
+          python tuf_manager.py "$VERSION" "artifacts" "keys" "repository"
 
           find repository -maxdepth 2 -type f -print
 

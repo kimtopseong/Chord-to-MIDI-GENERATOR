@@ -52,5 +52,5 @@ app = BUNDLE(
     coll,
     name='Chord-to-MIDI-GENERATOR.app',
     icon=None,
-    bundle_identifier=None,
+    bundle_identifier='com.tsk.chord2midi',
 )

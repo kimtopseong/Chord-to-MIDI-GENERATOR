@@ -19,8 +19,7 @@ jobs:
         include:
           - os: macos-14
             asset_suffix: mac-arm64
-            build_cmd: |
-              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:Frameworks"                 --add-data "loading.png:Frameworks"                 --add-data "root.json:Frameworks"                 main.py
+            build_cmd: pyinstaller --noconfirm mac.spec
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
@@ -28,8 +27,7 @@ jobs:
               echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: macos-13
             asset_suffix: mac-x86_64
-            build_cmd: |
-              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:Frameworks"                 --add-data "loading.png:Frameworks"                 --add-data "root.json:Frameworks"                 main.py
+            build_cmd: pyinstaller --noconfirm mac.spec
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-x86_64.zip"
@@ -37,17 +35,11 @@ jobs:
               echo "ASSET_PATH=$ASSET" >> "$GITHUB_ENV"
           - os: windows-latest
             asset_suffix: win-x86
-            build_cmd: >
-              pyinstaller --noconfirm --windowed --onedir
-              --name "Chord-to-MIDI-GENERATOR"
-              --add-data "pro_theme.json;."
-              --add-data "loading.png;."
-              --add-data "root.json;."
-              main.py
+            build_cmd: pyinstaller --noconfirm win.spec
             zip_cmd: |
               $VERSION = "${{ github.ref_name }}"
               $ASSET  = "Chord-to-MIDI-GENERATOR-$VERSION-win-x86.zip"
-              Compress-Archive -Path dist\Chord-to-MIDI-GENERATOR\* -DestinationPath $ASSET -Force
+              Compress-Archive -Path dist\Chord-to-MIDI-GENERATOR -DestinationPath $ASSET -Force
               "ASSET_PATH=$ASSET" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:

@@ -150,6 +150,9 @@ jobs:
           rm -rf repository
           mkdir -p repository/metadata repository/targets
 
+          pwd
+          ls -la repository/metadata
+
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip" keys
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip" keys
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip" keys

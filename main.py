@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.15"
+CURRENT_VERSION = "1.1.16"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -649,8 +649,7 @@ if __name__ == "__main__":
         bundled_root_json_path_str = App.resource_path('root.json')
         bundled_root_json_content = Path(bundled_root_json_path_str).read_text()
         root_json_path = metadata_dir / 'root.json'
-        if not root_json_path.exists():
-            root_json_path.write_text(bundled_root_json_content)
+        root_json_path.write_text(bundled_root_json_content)
         if getattr(sys, 'frozen', False):
             app_install_dir = Path(sys.executable).parent.parent.parent
         else:

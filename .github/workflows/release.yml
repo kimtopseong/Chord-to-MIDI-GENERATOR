@@ -1,4 +1,4 @@
-name: Build, Release, and Update TUF metadata (onedir)
+name: Build, Release, and Update TUF metadata (onedir + Frameworks)
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           - os: macos-14
             asset_suffix: mac-arm64
             build_cmd: |
-              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
+              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:Frameworks"                 --add-data "loading.png:Frameworks"                 --add-data "root.json:Frameworks"                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-arm64.zip"
@@ -29,7 +29,7 @@ jobs:
           - os: macos-13
             asset_suffix: mac-x86_64
             build_cmd: |
-              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:."                 --add-data "loading.png:."                 --add-data "root.json:."                 main.py
+              pyinstaller --noconfirm --windowed --onedir                 --name "Chord-to-MIDI-GENERATOR"                 --osx-bundle-identifier "com.tsk.chord2midi"                 --add-data "pro_theme.json:Frameworks"                 --add-data "loading.png:Frameworks"                 --add-data "root.json:Frameworks"                 main.py
             zip_cmd: |
               VERSION="${{ github.ref_name }}"
               ASSET="Chord-to-MIDI-GENERATOR-$VERSION-mac-x86_64.zip"

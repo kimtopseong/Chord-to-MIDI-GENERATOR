@@ -44,7 +44,11 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
 
     # Copy all platform-specific zip files into the temporary directory
     found_bundles = False
-    for root, _, files in os.walk(artifacts_dir):
+    for root, dirs, files in os.walk(artifacts_dir): # Added 'dirs'
+        # Exclude the combined_bundle_dir from traversal
+        if combined_bundle_dir.name in dirs:
+            dirs.remove(combined_bundle_dir.name) # Modify dirs in-place
+
         for artifact_file in files:
             if artifact_file.startswith(f"{repository.app_name}-v{app_version}") and artifact_file.endswith(".zip"):
                 src_path = pathlib.Path(root) / artifact_file

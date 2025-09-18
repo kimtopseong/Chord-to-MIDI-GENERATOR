@@ -161,7 +161,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./repository
           publish_branch: gh-pages
-          force_orphan: true
+          keep_files: true
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2

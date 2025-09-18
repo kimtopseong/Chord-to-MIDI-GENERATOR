@@ -36,19 +36,20 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
         path.mkdir(parents=True, exist_ok=True)
 
     # Add all artifact bundles for the current version
-    for artifact_file in os.listdir(artifacts_dir):
-        # Filter for zip files that start with the app name and current version
-        if artifact_file.startswith(f"{repository.app_name}-{app_version}") and artifact_file.endswith(".zip"):
-            bundle_path = pathlib.Path(artifacts_dir) / artifact_file
-            logger.info(f"Adding bundle: {bundle_path}")
-            repository.add_bundle(
-                new_bundle_dir=bundle_path,
-                new_version=app_version,
-                skip_patch=False, # We want patches
-                custom_metadata=None,
-                required=False
-            )
-            logger.info(f"Bundle added: {bundle_path}")
+    for root, _, files in os.walk(artifacts_dir):
+        for artifact_file in files:
+            # Filter for zip files that start with the app name and current version
+            if artifact_file.startswith(f"{repository.app_name}-{app_version}") and artifact_file.endswith(".zip"):
+                bundle_path = pathlib.Path(root) / artifact_file
+                logger.info(f"Adding bundle: {bundle_path}")
+                repository.add_bundle(
+                    new_bundle_dir=bundle_path,
+                    new_version=app_version,
+                    skip_patch=False, # We want patches
+                    custom_metadata=None,
+                    required=False
+                )
+                logger.info(f"Bundle added: {bundle_path}")
 
     # Publish changes (sign and save metadata)
     # This will sign targets, snapshot, and timestamp.

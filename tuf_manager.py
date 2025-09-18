@@ -39,7 +39,8 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     for root, _, files in os.walk(artifacts_dir):
         for artifact_file in files:
             # Filter for zip files that start with the app name and current version
-            if artifact_file.startswith(f"{repository.app_name}-{app_version}") and artifact_file.endswith(".zip"):
+            # Account for 'v' prefix in artifact file names
+            if artifact_file.startswith(f"{repository.app_name}-v{app_version}") and artifact_file.endswith(".zip"):
                 bundle_path = pathlib.Path(root) / artifact_file
                 logger.info(f"Adding bundle: {bundle_path}")
                 repository.add_bundle(

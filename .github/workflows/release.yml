@@ -145,6 +145,11 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
+          rm -f repository/metadata/targets.json repository/metadata/snapshot.json
+
+          rm -rf repository
+          mkdir -p repository/metadata repository/targets
+
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-arm64.zip" keys
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-mac-x86_64.zip" keys
           echo 'y' | tufup targets add "$VERSION" "artifacts/Chord-to-MIDI-GENERATOR-${GITHUB_REF_NAME}-win-x86.zip" keys

@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.51"
+CURRENT_VERSION = "1.1.52"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -680,7 +680,7 @@ if __name__ == "__main__":
         try:
             # Access the trusted metadata set through the updater's private attribute
             trusted_set = updater._trusted_set
-            all_targets = trusted_set.targets.signed.targets
+            all_targets = trusted_set.targets.targets
             if all_targets:
                 latest_target = max(all_targets.values(), key=lambda t: t.version)
 

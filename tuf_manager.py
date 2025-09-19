@@ -6,6 +6,7 @@ import shutil
 import tarfile
 from datetime import datetime, timedelta
 import logging
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 try:
     from tuf.api.metadata import (

@@ -77,12 +77,16 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     repository.publish_changes(private_key_dirs=[pathlib.Path(keys_dir)])
     logger.info("Metadata published successfully.")
 
+    # Manually create the versioned root.json file
+    root_version = repository.roles.root.signed.version
+    versioned_root_path = repository.metadata_dir / f"{root_version}.root.json"
+    latest_root_path = repository.metadata_dir / "root.json"
+    shutil.copy(latest_root_path, versioned_root_path)
+    logger.info(f"Created versioned root metadata: {versioned_root_path}")
+
     # Clean up the temporary combined bundle directory
     shutil.rmtree(combined_bundle_dir)
     logger.info(f"Cleaned up combined bundle directory: {combined_bundle_dir}")
-
-    # Explicitly persist the root.json with version number
-    repository.roles.persist_role(role_name='root')
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:

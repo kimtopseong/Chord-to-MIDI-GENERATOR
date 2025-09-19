@@ -24,30 +24,16 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
     
-    with open(config_path, 'r') as f:
-        config = json.load(f)
+    # Use Repository.from_config() to initialize the repository
+    repository = Repository.from_config()
 
-    app_name = config.get('app_name', 'Chord-to-MIDI-GENERATOR')
-    expiration_days = config.get('expiration_days', DEFAULT_EXPIRATION_DAYS)
-    key_map = config.get('key_map')
-    encrypted_keys = config.get('encrypted_keys')
-    thresholds = config.get('thresholds')
-
-    repository = Repository(
-        app_name=app_name,
-        repo_dir=repo_dir,
-        keys_dir=keys_dir,
-        expiration_days=expiration_days,
-        key_map=key_map,
-        encrypted_keys=encrypted_keys,
-        thresholds=thresholds
-    )
-
-    # Load keys and roles without creating new keys
-    repository._load_keys_and_roles(create_keys=False)
-
-    # Force root.json update by refreshing expiration date
-    repository.refresh_expiration_date(role_name='root')
+    # Ensure the repository paths are correctly set
+    repository.repo_dir = pathlib.Path(repo_dir).resolve()
+    repository.keys_dir = pathlib.Path(keys_dir).resolve()
+    
+    # Ensure dirs exist
+    for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
+        path.mkdir(parents=True, exist_ok=True)
 
     # Create a temporary directory to combine all platform bundles
     combined_bundle_dir = pathlib.Path(artifacts_dir) / f"combined_bundle_{app_version}"
@@ -56,10 +42,9 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
 
     # Copy all platform-specific zip files into the temporary directory
     found_bundles = False
-    for root, dirs, files in os.walk(artifacts_dir): # Added 'dirs'
-        # Exclude the combined_bundle_dir from traversal
+    for root, dirs, files in os.walk(artifacts_dir):
         if combined_bundle_dir.name in dirs:
-            dirs.remove(combined_bundle_dir.name) # Modify dirs in-place
+            dirs.remove(combined_bundle_dir.name)
 
         for artifact_file in files:
             if artifact_file.startswith(f"{repository.app_name}-v{app_version}") and artifact_file.endswith(".zip"):
@@ -76,7 +61,7 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     # Add the combined bundle to the repository
     logger.info(f"Adding combined bundle for version: {app_version}")
     repository.add_bundle(
-        new_bundle_dir=combined_bundle_dir, # Pass the combined directory
+        new_bundle_dir=combined_bundle_dir,
         new_version=app_version,
         skip_patch=False,
         custom_metadata=None,
@@ -88,13 +73,6 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     logger.info("Publishing changes (signing metadata)...")
     repository.publish_changes(private_key_dirs=[pathlib.Path(keys_dir)])
     logger.info("Metadata published successfully.")
-
-    # Manually create the versioned root.json file
-    root_version = repository.roles.root.signed.version
-    versioned_root_path = repository.metadata_dir / f"{root_version}.root.json"
-    latest_root_path = repository.metadata_dir / "root.json"
-    shutil.copy(latest_root_path, versioned_root_path)
-    logger.info(f"Created versioned root metadata: {versioned_root_path}")
 
     # Clean up the temporary combined bundle directory
     shutil.rmtree(combined_bundle_dir)

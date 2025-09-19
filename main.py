@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.25"
+CURRENT_VERSION = "1.1.26"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -561,10 +561,10 @@ class App(ctk.CTk):
             self._log("All measures cleared.")
     def _on_key_changed(self, *_):
         if self._suppress: return
-        self._log(f"Key changed to {self.key_var.get()}."); self._update_builder_roots(); self._convert_all_entries()
+        self._log(f"Key changed to {self.key_var.get()}.\n"); self._update_builder_roots(); self._convert_all_entries()
     def _on_mode_changed(self, *_):
         if self._suppress: return
-        self._log(f"Mode changed to {self.mode_var.get()}."); self._update_builder_roots(); self._convert_all_entries()
+        self._log(f"Mode changed to {self.mode_var.get()}.\n"); self._update_builder_roots(); self._convert_all_entries()
     def _convert_all_entries(self):
         mode, key = self.mode_var.get(), self.key_var.get(); is_to_degree = (mode == self.i18n[self.lang_code]["degree"])
         for e in getattr(self, "measure_entries", []):
@@ -610,7 +610,7 @@ class App(ctk.CTk):
         else: self._log("No measure entry to insert into.")
     def _on_generate_midi(self):
         try:
-            path = filedialog.asksaveasfilename(title="Save MIDI", defaultextension=".mid", filetypes=[("MIDI file", "*.mid")])
+            path = filedialog.asksaveasfilename(title="Save MIDI",defaultextension=".mid", filetypes=[("MIDI file", "*.mid")])
             if not path: self._log("Save cancelled."); return
             mid = MidiFile(ticks_per_beat=480); track = MidiTrack(); mid.tracks.append(track)
             tpb = mid.ticks_per_beat; track.append(MetaMessage('set_tempo', tempo=bpm2tempo(120)))
@@ -638,7 +638,10 @@ class App(ctk.CTk):
 if __name__ == "__main__":
     from pathlib import Path
     import sys
+    import os
     import logging
+    from tuf.ngclient import Updater
+
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('tufup').setLevel(logging.DEBUG)
 
@@ -660,6 +663,15 @@ if __name__ == "__main__":
         TARGET_BASE_URL = 'https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/'
         target_dir = writable_dir / 'targets'
         os.makedirs(target_dir, exist_ok=True)
+        
+        updater = Updater(           
+            metadata_dir=str(metadata_dir),
+            metadata_base_url=METADATA_BASE_URL,
+            target_dir=str(target_dir),
+            target_base_url=TARGET_BASE_URL,
+        )
+        updater.refresh()
+
         client = Client(
             app_name=APP_NAME,
             app_install_dir=str(app_install_dir),
@@ -668,6 +680,7 @@ if __name__ == "__main__":
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
+            updater=updater
         )
         client.check_for_updates()
     except Exception as e:

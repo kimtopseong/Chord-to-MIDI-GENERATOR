@@ -66,7 +66,7 @@ class TufRepoManager:
         targets.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
         
         archive_filename = f"{self.app_name}-{app_version}.tar.gz"
-        archive_path = self.targets_dir / archive_filename
+        archive_path = self.repo_dir.resolve() / 'targets' / archive_filename
         
         with tarfile.open(archive_path, "w:gz") as tar:
             for root_dir, _, files in os.walk(artifacts_dir):

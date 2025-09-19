@@ -110,7 +110,8 @@ def main():
         logger.error(f"FATAL: Archive file was not created at '{archive_path}'")
         sys.exit(1)
     
-    target_file = TargetFile.from_file(str(archive_path), archive_filename)
+    os.chdir(targets_dir)
+    target_file = TargetFile.from_file(archive_filename, archive_filename)
     targets.targets[archive_filename] = target_file
     logger.info(f"Added '{archive_filename}' to targets.")
 

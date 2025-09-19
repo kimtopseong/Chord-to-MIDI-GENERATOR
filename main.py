@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.83"
+CURRENT_VERSION = "1.1.84"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -684,9 +684,13 @@ if __name__ == "__main__":
         # ---- 수정된 부분: app_install_dir 정의 위치 변경 ----
         # PyInstaller로 빌드되었는지 여부에 따라 앱 설치 경로를 결정
         if getattr(sys, 'frozen', False):
-            # .app 번들 내부의 MacOS 폴더에서 실행되므로, 상위 폴더로 여러 번 이동해야 .app 폴더에 도달
             app_executable_path = Path(sys.executable)
-            app_install_dir = app_executable_path.parent.parent.parent
+            if sys.platform == "darwin":
+                # macOS .app bundle structure: AppName.app/Contents/MacOS/AppName
+                app_install_dir = app_executable_path.parent.parent.parent
+            else:
+                # Windows/Linux frozen structure: directory/AppName.exe
+                app_install_dir = app_executable_path.parent
         else:
             # 일반 파이썬 스크립트로 실행될 경우
             app_install_dir = Path(__file__).parent
@@ -720,7 +724,13 @@ if __name__ == "__main__":
                     latest_target = target_info
 
         if latest_target and parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
-            if messagebox.askyesno("Update available", f"An update to version {latest_version_str} is available. Do you want to install it?"):
+            title = f"업데이트 가능 (Update Available) v{latest_version_str}"
+            message = (
+                f"새로운 {latest_version_str} 버전으로 업데이트할 수 있습니다. 설치하시겠습니까?\n"
+                f"---\n"
+                f"An update to version {latest_version_str} is available. Do you want to install it?"
+            )
+            if messagebox.askyesno(title, message):
                 
                 tmp_path = None
                 try:
@@ -906,12 +916,22 @@ finally:
 
                     # 로그 파일을 지정하고, 별도 프로세스로 업데이트 스크립트 실행
                     updater_log_path = os.path.join(writable_dir, 'updater.log')
-                    with open(updater_log_path, 'w', encoding='utf-8') as log_file:
-                        subprocess.Popen(
-                            ['/usr/bin/python3', script_path], # <--- 이렇게 변경
-                            stdout=log_file,
-                            stderr=log_file
-                        )
+
+                    # macOS에서는 관리자 권한을 요청하여 업데이트를 실행
+                    if sys.platform == "darwin":
+                        python_executable = "/usr/bin/python3"
+                        # 경로에 공백이 있을 수 있으므로 따옴표로 감싸줍니다.
+                        command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
+                        # AppleScript는 내부의 큰따옴표를 이스케이프 처리해야 합니다.
+                        applescript = f'do shell script "{command_with_redirect.replace('"', '\\"')}" with administrator privileges'
+                        subprocess.Popen(['osascript', '-e', applescript])
+                    else: # For other platforms (Windows, etc.)
+                        with open(updater_log_path, 'w', encoding='utf-8') as log_file:
+                            subprocess.Popen(
+                                ['/usr/bin/python3', script_path],
+                                stdout=log_file,
+                                stderr=log_file
+                            )
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)
@@ -923,7 +943,14 @@ finally:
                         except OSError as e_clean:
                             print(f"Error cleaning up temp file: {e_clean}")
                     
-                    messagebox.showerror("Update Error", f"Failed to download or verify the update: {e}")
+                    title = "업데이트 오류 (Update Error)"
+                    message = (
+                        f"업데이트 다운로드 또는 확인에 실패했습니다.\n"
+                        f"---\n"
+                        f"Failed to download or verify the update.\n\n"
+                        f"Error: {e}"
+                    )
+                    messagebox.showerror(title, message)
                     print(f"Error during manual update process: {e}")
 
     except Exception as e:
@@ -945,11 +972,15 @@ finally:
             if parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
                 
                 # 사용자에게 수동 업데이트 안내
-                if messagebox.askyesno(
-                    "수동 업데이트 필요",
-                    f"새로운 버전(v{latest_version_str})이 발견되었지만, 자동 업데이트에 실패했습니다.\n\n"
-                    "다운로드 페이지로 이동하시겠습니까?"
-                ):
+                title = "수동 업데이트 필요 (Manual Update Required)"
+                message = (
+                    f"새로운 버전(v{latest_version_str})이 발견되었지만, 자동 업데이트에 실패했습니다.\n"
+                    f"다운로드 페이지로 이동하시겠습니까?\n"
+                    f"---\n"
+                    f"A new version (v{latest_version_str}) was found, but automatic update failed.\n"
+                    f"Would you like to go to the download page?"
+                )
+                if messagebox.askyesno(title, message):
                     # GitHub 릴리즈 페이지를 웹 브라우저로 열기
                     download_url = latest_release.get("html_url")
                     if download_url:

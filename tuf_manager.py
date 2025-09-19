@@ -10,7 +10,7 @@ from tuf.api.metadata import (
     Root, Snapshot, Targets, Timestamp, Metadata, TargetFile
 )
 from tuf.api.serialization.json import JSONSerializer
-from securesystemslib.signer import SSlibSigner
+from securesystemslib.signers import Signer
 from securesystemslib.interface import (
     import_ed25519_privatekey_from_file,
 )

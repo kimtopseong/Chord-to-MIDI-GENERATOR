@@ -113,6 +113,12 @@ jobs:
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
+      - name: Seed TUF repository with root.json
+        run: |
+          mkdir -p repository/metadata
+          cp root.json repository/metadata/root.json
+          echo "Seeded repository with root.json"
+
       - name: Create and Sign TUF metadata
         shell: bash
         run: |

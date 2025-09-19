@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.50"
+CURRENT_VERSION = "1.1.51"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -642,6 +642,7 @@ if __name__ == "__main__":
     import logging
     import shutil
     from tuf.ngclient import Updater
+    from tuf.ngclient.config import UpdaterConfig
 
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('tuf').setLevel(logging.DEBUG)
@@ -670,17 +671,16 @@ if __name__ == "__main__":
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
+            config=UpdaterConfig(max_root_rotations=10) # Allow more root rotations
         )
         updater.refresh()
         
         # Find the latest available target
         latest_target = None
         try:
-            # In python-tuf v2+, find_target is the way to check for a target
-            # We need to guess the target name. Let's try to find any target.
-            # A better approach would be to have a predictable target name or a custom metadata file.
-            # For now, we assume there's only one target per version.
-            all_targets = updater.trusted_set.targets.signed.targets
+            # Access the trusted metadata set through the updater's private attribute
+            trusted_set = updater._trusted_set
+            all_targets = trusted_set.targets.signed.targets
             if all_targets:
                 latest_target = max(all_targets.values(), key=lambda t: t.version)
 

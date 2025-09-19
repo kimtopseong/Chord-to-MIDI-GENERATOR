@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.27"
+CURRENT_VERSION = "1.1.28"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -673,8 +673,7 @@ if __name__ == "__main__":
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
         )
-        client.updater.refresh()
-        client.check_for_updates()
+        client.check_for_updates(force=True)
     except Exception as e:
         print(f"Error during update check: {e}")
     

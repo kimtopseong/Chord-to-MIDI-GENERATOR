@@ -43,8 +43,8 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
         thresholds=thresholds
     )
 
-    # Initialize the repository (load keys and roles)
-    repository.initialize()
+    # Load keys and roles without creating new keys
+    repository._load_keys_and_roles(create_keys=False)
 
     # Force root.json update by refreshing expiration date
     repository.refresh_expiration_date(role_name='root')

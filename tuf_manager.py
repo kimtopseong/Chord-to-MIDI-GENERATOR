@@ -24,18 +24,27 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
     
-    # Use Repository.from_config() to initialize the repository
-    # This will load keys and roles without trying to create new keys.
-    repository = Repository.from_config()
+    with open(config_path, 'r') as f:
+        config = json.load(f)
 
-    # Ensure the repository paths are correctly set, as from_config might use cwd
-    # This is important because the workflow runs in GITHUB_WORKSPACE, but repo_dir might be relative.
-    repository.repo_dir = pathlib.Path(repo_dir).resolve()
-    repository.keys_dir = pathlib.Path(keys_dir).resolve()
-    
-    # Ensure dirs exist (from Repository.initialize)
-    for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
-        path.mkdir(parents=True, exist_ok=True)
+    app_name = config.get('app_name', 'Chord-to-MIDI-GENERATOR')
+    expiration_days = config.get('expiration_days', DEFAULT_EXPIRATION_DAYS)
+    key_map = config.get('key_map')
+    encrypted_keys = config.get('encrypted_keys')
+    thresholds = config.get('thresholds')
+
+    repository = Repository(
+        app_name=app_name,
+        repo_dir=repo_dir,
+        keys_dir=keys_dir,
+        expiration_days=expiration_days,
+        key_map=key_map,
+        encrypted_keys=encrypted_keys,
+        thresholds=thresholds
+    )
+
+    # Initialize the repository (load keys and roles)
+    repository.initialize()
 
     # Force root.json update by refreshing expiration date
     repository.refresh_expiration_date(role_name='root')

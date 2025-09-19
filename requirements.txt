@@ -2,5 +2,4 @@ pyinstaller
 customtkinter
 mido
 requests
-python-tuf
-securesystemslib
+tuf

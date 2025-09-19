@@ -87,7 +87,7 @@ class TufRepoManager:
             logger.info(f"SUCCESS: Verified archive exists at '{archive_path}'")
 
         # 3. Add archive to targets metadata
-        target_file = TargetFile.from_file(str(archive_path.relative_to(pathlib.Path.cwd())), archive_filename)
+        target_file = TargetFile.from_file(str(archive_path), archive_filename)
         targets.targets[archive_filename] = target_file
         logger.info(f"Added to targets: {archive_filename}")
 

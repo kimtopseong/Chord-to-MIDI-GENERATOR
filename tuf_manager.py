@@ -7,7 +7,7 @@ import tarfile
 from datetime import datetime, timedelta
 
 from tuf.api.metadata import (
-    Root, Snapshot, Targets, Timestamp, Metadata, TargetFile
+    Root, Snapshot, Targets, Timestamp, Metadata, TargetFile, MetaFile
 )
 from tuf.api.serialization.json import JSONSerializer
 from securesystemslib.signer import SSlibSigner
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 class TufRepoManager:
     def __init__(self, repo_dir: str, keys_dir: str, app_name: str):
-        self.repo_dir = pathlib.Path(repo_dir)
-        self.keys_dir = pathlib.Path(keys_dir)
+        self.repo_dir = pathlib.Path(repo_dir).resolve()
+        self.keys_dir = pathlib.Path(keys_dir).resolve()
         self.app_name = app_name
         self.metadata_dir = self.repo_dir / 'metadata'
         self.targets_dir = self.repo_dir / 'targets'
@@ -55,19 +55,20 @@ class TufRepoManager:
             logger.error("root.json not found. Cannot proceed.")
             sys.exit(1)
 
-        # 1. Update root metadata if needed (e.g., refresh expiration)
+        # 1. Update root metadata
         root = meta["root"].signed
         root.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=365)
         root.version += 1
         logger.info(f"Root version bumped to {root.version}")
 
-        # 2. Create a combined archive and add it to targets
+        # 2. Create a combined archive
         targets = meta.get("targets", Metadata(Targets(expires=datetime.utcnow() + timedelta(days=7)))).signed
         targets.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
         
         archive_filename = f"{self.app_name}-{app_version}.tar.gz"
-        archive_path = self.repo_dir.resolve() / 'targets' / archive_filename
+        archive_path = self.targets_dir / archive_filename
         
+        logger.info(f"Creating archive at: {archive_path}")
         with tarfile.open(archive_path, "w:gz") as tar:
             for root_dir, _, files in os.walk(artifacts_dir):
                 for file in files:
@@ -76,21 +77,31 @@ class TufRepoManager:
                         tar.add(full_path, arcname=file)
                         logger.info(f"Added to archive: {file}")
 
-        target_file = TargetFile.from_file(archive_path, str(archive_path.relative_to(self.repo_dir.resolve())))
+        # DEBUG: Check if the file was created
+        if not archive_path.exists():
+            logger.error(f"FATAL: Archive file was NOT created at '{archive_path}'")
+            logger.error(f"Current Working Directory: {pathlib.Path.cwd()}")
+            logger.error(f"Contents of targets_dir ({self.targets_dir}): {os.listdir(self.targets_dir)}")
+            sys.exit(1)
+        else:
+            logger.info(f"SUCCESS: Verified archive exists at '{archive_path}'")
+
+        # 3. Add archive to targets metadata
+        target_file = TargetFile.from_file(str(archive_path), archive_filename)
         targets.targets[archive_filename] = target_file
         logger.info(f"Added to targets: {archive_filename}")
 
-        # 3. Update snapshot
+        # 4. Update snapshot
         snapshot = meta.get("snapshot", Metadata(Snapshot(expires=datetime.utcnow() + timedelta(days=7)))).signed
         snapshot.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
         snapshot.meta["targets.json"] = MetaFile(version=targets.version)
 
-        # 4. Update timestamp
+        # 5. Update timestamp
         timestamp = meta.get("timestamp", Metadata(Timestamp(expires=datetime.utcnow() + timedelta(days=1)))).signed
         timestamp.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=1)
         timestamp.snapshot_meta = MetaFile(version=snapshot.version)
 
-        # 5. Sign and write all metadata
+        # 6. Sign and write all metadata
         for role_name, metadata_obj in [("root", meta["root"]), ("targets", Metadata(targets)), ("snapshot", Metadata(snapshot)), ("timestamp", Metadata(timestamp))]:
             metadata_obj.signatures.clear()
             self._sign_metadata(role_name, metadata_obj)

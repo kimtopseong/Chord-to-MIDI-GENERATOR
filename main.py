@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.28"
+CURRENT_VERSION = "1.1.29"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -640,7 +640,6 @@ if __name__ == "__main__":
     import sys
     import os
     import logging
-    from tuf.ngclient import Updater
 
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('tufup').setLevel(logging.DEBUG)
@@ -673,8 +672,8 @@ if __name__ == "__main__":
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
         )
-        client.check_for_updates(force=True)
-    except Exception as e:
+        client.check_for_updates()
+    except Exception as e: 
         print(f"Error during update check: {e}")
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)

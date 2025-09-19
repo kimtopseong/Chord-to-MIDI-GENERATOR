@@ -2,3 +2,4 @@ tufup
 pyinstaller
 customtkinter
 mido
+requests

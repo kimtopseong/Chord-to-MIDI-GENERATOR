@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.63"
+CURRENT_VERSION = "1.1.64"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -642,6 +642,10 @@ if __name__ == "__main__":
     import logging
     import shutil
     import re
+    # ---- 수정된 부분: 필요한 라이브러리 import ----
+    import requests
+    import hashlib
+    # -----------------------------------------
     from packaging.version import parse as parse_version
     from tuf.ngclient import Updater
     from tuf.ngclient.config import UpdaterConfig
@@ -675,7 +679,7 @@ if __name__ == "__main__":
             metadata_dir=str(metadata_dir),
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
-            target_base_url="", # Must be empty, we construct the URL dynamically
+            target_base_url="", # This remains empty as TUF's download isn't used.
             config=UpdaterConfig(max_root_rotations=10)
         )
         updater.refresh() 
@@ -694,15 +698,66 @@ if __name__ == "__main__":
                     latest_version_str = version_str
                     latest_target = target_info
 
+        # ---- 여기부터 업데이트 로직 전체가 수정되었습니다 ----
         if latest_target and parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
             if messagebox.askyesno("Update available", f"An update to version {latest_version_str} is available. Do you want to install it?"):
-                tag_name = f"v{latest_version_str}"
-                # Set the base URL on the updater object itself
-                updater.target_base_url = f"https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/{tag_name}"
                 
-                updater.download_target(latest_target)
-                updater.install_on_exit([sys.executable] + sys.argv)
-                sys.exit(0)
+                tmp_path = None
+                try:
+                    # 1. 정확한 다운로드 URL 생성
+                    tag_name = f"v{latest_version_str}"
+                    file_name = os.path.basename(latest_target.path)
+                    base_url = "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download"
+                    download_url = f"{base_url}/{tag_name}/{file_name}"
+                    print(f"Downloading update from: {download_url}")
+
+                    # 2. requests를 사용하여 파일 다운로드 (스트리밍 및 타임아웃 적용)
+                    resp = requests.get(download_url, stream=True, timeout=(5, 120))
+                    resp.raise_for_status()
+
+                    # 3. 임시 파일에 저장하며 해시 및 길이 동시 검증
+                    tmp_path = os.path.join(str(target_dir), f".{file_name}.part")
+                    hasher = hashlib.sha256()
+                    total_bytes = 0
+
+                    with open(tmp_path, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=1024 * 1024): # 1MB chunks
+                            if chunk:
+                                f.write(chunk)
+                                hasher.update(chunk)
+                                total_bytes += len(chunk)
+                    
+                    # 4. 다운로드 완료 후 최종 검증 (길이 및 해시)
+                    expected_len = latest_target.length
+                    if total_bytes != expected_len:
+                        raise ValueError(f"Length mismatch: expected {expected_len}, got {total_bytes}")
+
+                    downloaded_hash = hasher.hexdigest()
+                    trusted_hash = latest_target.hashes.get("sha256")
+                    if downloaded_hash.lower() != str(trusted_hash).lower():
+                        raise ValueError(f"Hash mismatch! Trusted: {trusted_hash}, Downloaded: {downloaded_hash}")
+
+                    print("File hash & length verified successfully.")
+
+                    # 5. 검증 완료 후 임시 파일을 최종 파일로 원자적 교체
+                    final_path = os.path.join(str(target_dir), file_name)
+                    os.replace(tmp_path, final_path)
+
+                    # 6. TUF의 설치 스케줄링 기능 호출
+                    updater.install_on_exit([sys.executable] + sys.argv)
+                    sys.exit(0)
+
+                except Exception as e:
+                    # 에러 발생 시 임시 파일 정리
+                    if tmp_path and os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except OSError as e_clean:
+                            print(f"Error cleaning up temp file: {e_clean}")
+                    
+                    messagebox.showerror("Update Error", f"Failed to download or verify the update: {e}")
+                    print(f"Error during manual update process: {e}")
+        # ---- 여기까지 업데이트 로직 수정 끝 ----
 
     except Exception as e:
         print(f"Error during update check: {e}")

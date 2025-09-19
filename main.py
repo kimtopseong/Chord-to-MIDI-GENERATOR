@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.52"
+CURRENT_VERSION = "1.1.53"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -641,6 +641,8 @@ if __name__ == "__main__":
     import os
     import logging
     import shutil
+    import re
+    from packaging.version import parse as parse_version
     from tuf.ngclient import Updater
     from tuf.ngclient.config import UpdaterConfig
 
@@ -671,24 +673,27 @@ if __name__ == "__main__":
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
-            config=UpdaterConfig(max_root_rotations=10) # Allow more root rotations
+            config=UpdaterConfig(max_root_rotations=10)
         )
-        updater.refresh()
+        updater.refresh() 
         
-        # Find the latest available target
         latest_target = None
-        try:
-            # Access the trusted metadata set through the updater's private attribute
-            trusted_set = updater._trusted_set
-            all_targets = trusted_set.targets.targets
-            if all_targets:
-                latest_target = max(all_targets.values(), key=lambda t: t.version)
+        latest_version = parse_version(CURRENT_VERSION)
 
-        except Exception as e:
-            print(f"Could not find targets: {e}")
+        trusted_set = updater._trusted_set
+        all_targets = trusted_set.targets.targets
+        
+        for target_name, target_info in all_targets.items():
+            match = re.search(r'-(\d+\.\d+\.\d+)\.tar\.gz$', target_name)
+            if match:
+                version_str = match.group(1)
+                target_version = parse_version(version_str)
+                if target_version > latest_version:
+                    latest_version = target_version
+                    latest_target = target_info
 
-        if latest_target and latest_target.version > CURRENT_VERSION:
-            if messagebox.askyesno("Update available", f"An update to version {latest_target.version} is available. Do you want to install it?"):
+        if latest_target:
+            if messagebox.askyesno("Update available", f"An update to version {latest_version} is available. Do you want to install it?"):
                 updater.download_target(latest_target)
                 updater.install_on_exit([sys.executable] + sys.argv)
                 sys.exit(0)

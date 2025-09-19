@@ -5,3 +5,4 @@ requests
 tuf
 securesystemslib==0.31.0
 cryptography
+packaging

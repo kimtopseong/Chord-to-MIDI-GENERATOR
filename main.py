@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.58"
+CURRENT_VERSION = "1.1.59"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -355,17 +355,17 @@ class App(ctk.CTk):
                 "tensions": "텐션",
                 "reset_tensions": "텐션 초기화",
                 "build_insert": "코드 만들고 넣기",
-                "instructions_text": "입력한 코드를 MIDI로 변환해주는 도구입니다.\n\n" \
-                     "• 코드 구분은 공백만 사용됩니다. (예: C G/B Am7 F)\n" \
-                     "• 슬래시(/)는 베이스음을 지정합니다. (예: C/E는 C코드, 베이스 E)\n" \
-                     "• 코드의 전위(베이스 변경)는 로마자/알파벳 형식의 표기만 지원합니다. (예: IIIm/G)\n" \
-                     "• 코드와 도수(로마자) 간 변환이 가능합니다.\n\n" \
-                     "• omit3, omit5로 3음, 5음을 생략할 수 있습니다. (예: C7omit3)\n" \
-                     "• 5음 생략 버튼은 텐션과 5음이 반음 관계일 때 5음을 제거하는 기능입니다.\n" \
-                     "• '베이스 중복음 생략' 체크 시 코드와 베이스의 중복음을 제거합니다.\n" \
-                     "• 모든 코드는 한 옥타브 낮은 베이스음과 함께 연주됩니다.\n\n" \
-                     "• 코드 빌더는 선택한 마디 칸에 코드를 생성하는 도구입니다. 한 마디에는 최대 4개의 코드까지 입력할 수 있습니다.\n" \
-                     "• 마디 숫자를 입력하고 +, - 버튼을 누르면 원하는 만큼 마디를 추가하거나 제거할 수 있습니다.\n\n" \
+                "instructions_text": "입력한 코드를 MIDI로 변환해주는 도구입니다.\n\n"
+                     "• 코드 구분은 공백만 사용됩니다. (예: C G/B Am7 F)\n"
+                     "• 슬래시(/)는 베이스음을 지정합니다. (예: C/E는 C코드, 베이스 E)\n"
+                     "• 코드의 전위(베이스 변경)는 로마자/알파벳 형식의 표기만 지원합니다. (예: IIIm/G)\n"
+                     "• 코드와 도수(로마자) 간 변환이 가능합니다.\n\n"
+                     "• omit3, omit5로 3음, 5음을 생략할 수 있습니다. (예: C7omit3)\n"
+                     "• 5음 생략 버튼은 텐션과 5음이 반음 관계일 때 5음을 제거하는 기능입니다.\n"
+                     "• '베이스 중복음 생략' 체크 시 코드와 베이스의 중복음을 제거합니다.\n"
+                     "• 모든 코드는 한 옥타브 낮은 베이스음과 함께 연주됩니다.\n\n"
+                     "• 코드 빌더는 선택한 마디 칸에 코드를 생성하는 도구입니다. 한 마디에는 최대 4개의 코드까지 입력할 수 있습니다.\n"
+                     "• 마디 숫자를 입력하고 +, - 버튼을 누르면 원하는 만큼 마디를 추가하거나 제거할 수 있습니다.\n\n"
                      "• 문제가 발생할 경우 하단 Log 탭의 내용을 복사하여 개발자에게 제보 부탁드립니다.",
                 "clear_confirm_title": "확인",
                 "clear_confirm_message": "모든 마디에 입력된 코드를 정말로 지우시겠습니까?"
@@ -386,17 +386,17 @@ class App(ctk.CTk):
                 "tensions": "Tensions",
                 "reset_tensions": "Reset Tensions",
                 "build_insert": "Build & Insert Chord",
-                "instructions_text": "This tool converts entered chords into MIDI notes.\n\n" \
-                     "• Use spaces to separate chords (e.g., C G/B Am7 F)\n" \
-                     "• Use a slash (/) to specify a bass note (e.g., C/E means C chord with E bass)\n" \
-                     "• Inversions (changing bass notes) support only the Roman/Alphabet format (e.g., IIIm/G)\n" \
-                     "• Supports conversion between chord names and Roman numerals\n\n" \
-                     "• Use omit3, omit5 to omit the 3rd or 5th (e.g., C7omit3)\n" \
-                     "• The 'Omit 5th' option removes the 5th when it clashes with tensions\n" \
-                     "• Check 'Omit Duplicate Bass' to remove notes in the chord that match the bass\n" \
-                     "• All chords are played with a bass note one octave below\n\n" \
-                     "• The Chord Builder inserts chords into a selected measure. Up to 4 chords can be placed per measure\n" \
-                     "• Enter a number and press + or - to add or remove as many measures as you want\n\n" \
+                "instructions_text": "This tool converts entered chords into MIDI notes.\n\n"
+                     "• Use spaces to separate chords (e.g., C G/B Am7 F)\n"
+                     "• Use a slash (/) to specify a bass note (e.g., C/E means C chord with E bass)\n"
+                     "• Inversions (changing bass notes) support only the Roman/Alphabet format (e.g., IIIm/G)\n"
+                     "• Supports conversion between chord names and Roman numerals\n\n"
+                     "• Use omit3, omit5 to omit the 3rd or 5th (e.g., C7omit3)\n"
+                     "• The 'Omit 5th' option removes the 5th when it clashes with tensions\n"
+                     "• Check 'Omit Duplicate Bass' to remove notes in the chord that match the bass\n"
+                     "• All chords are played with a bass note one octave below\n\n"
+                     "• The Chord Builder inserts chords into a selected measure. Up to 4 chords can be placed per measure\n"
+                     "• Enter a number and press + or - to add or remove as many measures as you want\n\n"
                      "• If an error occurs, please copy the Log tab contents and report it to the developer.",
                 "clear_confirm_title": "Confirmation",
                 "clear_confirm_message": "Are you sure you want to clear all chords from all measures?"
@@ -696,15 +696,10 @@ if __name__ == "__main__":
 
         if latest_target and parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
             if messagebox.askyesno("Update available", f"An update to version {latest_version_str} is available. Do you want to install it?"):
-                # Dynamically construct the full URL
                 tag_name = f"v{latest_version_str}"
-                full_url = f"https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/{tag_name}/{latest_target.path}"
+                # Set the base URL on the updater object itself
+                updater.target_base_url = f"https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/{tag_name}"
                 
-                # The tuf library expects a URL path relative to the target_base_url,
-                # but since we are providing the full URL, we can set the path to the full URL
-                # and leave target_base_url empty. This is a workaround for the library's design.
-                latest_target.path = full_url
-
                 updater.download_target(latest_target)
                 updater.install_on_exit([sys.executable] + sys.argv)
                 sys.exit(0)

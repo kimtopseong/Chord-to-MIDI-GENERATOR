@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.73"
+CURRENT_VERSION = "1.1.82"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -124,6 +124,11 @@ class App(ctk.CTk):
     def parse_chord_symbol(text: str, key: str) -> 'App.ParsedChord':
         s = text.strip()
         if not s: return App.ParsedChord(root='C', quality='Major')
+
+        # 'blk' 품질을 먼저 파싱하여 근음과의 모호함 제거
+        is_blk = 'blk' in s.lower()
+        if is_blk:
+            s = re.sub('blk', '', s, flags=re.IGNORECASE).strip()
         
         bass_note = None
         if '/' in s:
@@ -173,9 +178,10 @@ class App(ctk.CTk):
             is_minor_in_parens = any('m' in p for p in paren_contents)
             if not is_minor_in_parens: seventh = 'm7'
 
-        if 'sus4' in rest_mut: quality = 'sus4'; rest_mut = rest_mut.replace('sus4', '')
+        if is_blk:
+            quality = 'blk'
+        elif 'sus4' in rest_mut: quality = 'sus4'; rest_mut = rest_mut.replace('sus4', '')
         elif 'sus2' in rest_mut: quality = 'sus2'; rest_mut = rest_mut.replace('sus2', '')
-        elif 'blk' in rest_mut: quality = 'blk'; rest_mut = rest_mut.replace('blk', '')
         elif 'aug' in rest_mut or '+' in rest_mut: quality = 'aug'; rest_mut = rest_mut.replace('aug','').replace('+','')
         elif 'dim' in rest_mut: quality = 'dim'; rest_mut = rest_mut.replace('dim','')
         elif 'm' in rest_mut: quality = 'Minor'; rest_mut = rest_mut.replace('m','')
@@ -254,7 +260,7 @@ class App(ctk.CTk):
             # blk is special: Root of aug triad is M2 below the stated root/bass
             # Intervals are relative to the stated root, which is the bass
             # e.g for Cblk, root is C, notes are A#aug/C -> C bass, A#-D-F# chord
-            # Intervals from C(0) are D(4), F#(6), A#(10)
+            # Intervals from C(0) are D(2), F#(6), A#(10)
             intervals.extend([2, 6, 10]) # M2, A4, m7 from the bass
         else:
             all_tensions = parsed.tensions + parsed.paren_contents
@@ -478,6 +484,13 @@ class App(ctk.CTk):
         self.version_label.grid(row=3, column=1, padx=10, pady=(0, 5), sticky="se")
         self.grid_rowconfigure(3, weight=0)
 
+        # MIDI 생성 단축키 (Cmd+S / Ctrl+S) 바인딩
+        def on_save_midi(event=None): self._on_generate_midi()
+        if platform.system() == "Darwin":
+            self.bind("<Command-s>", on_save_midi)
+        else:
+            self.bind("<Control-s>", on_save_midi)
+
         self._update_language(); self._suppress = False; self.after(50, self._rebuild_measures); self._log("App started.")
         self.after(100, self.splash_root.destroy)
         
@@ -642,12 +655,12 @@ if __name__ == "__main__":
     import logging
     import shutil
     import re
-    # ---- 수정된 부분: 설치 로직에 필요한 라이브러리 import ----
     import requests
     import hashlib
     import subprocess
     import time
-    # -------------------------------------------------
+    import platform
+    import webbrowser  # webbrowser 라이브러리 추가
     from packaging.version import parse as parse_version
     from tuf.ngclient import Updater
     from tuf.ngclient.config import UpdaterConfig
@@ -749,7 +762,23 @@ if __name__ == "__main__":
                     # 5. 검증 완료 후 임시 파일을 최종 파일로 교체
                     final_path = os.path.join(str(target_dir), file_name)
                     os.replace(tmp_path, final_path)
-                    tmp_path = None # 성공적으로 옮겼으므로 에러 핸들러에서 삭제되지 않도록 None 처리
+                    tmp_path = None
+
+                    # === (추가) OS별로 다른 경로와 명령어 설정 ===
+                    if sys.platform == "darwin": # macOS
+                        app_executable_name = "Chord-to-MIDI-GENERATOR"
+                        restart_cmd = f"open '{os.path.join(app_install_dir.parent, app_executable_name + '.app')}'"
+                    elif sys.platform == "win32": # Windows
+                        app_executable_name = "Chord-to-MIDI-GENERATOR.exe"
+                        # 윈도우에서는 .zip을 풀면 'Chord-to-MIDI-GENERATOR' 폴더가 생김
+                        install_path = os.path.join(app_install_dir.parent, 'Chord-to-MIDI-GENERATOR')
+                        executable_path = os.path.join(install_path, app_executable_name)
+                        restart_cmd = f'start "" "{executable_path}"'
+                    else: # Linux 등 기타
+                        app_executable_name = "Chord-to-MIDI-GENERATOR"
+                        executable_path = os.path.join(app_install_dir.parent, app_executable_name)
+                        restart_cmd = f'"{executable_path}"'
+                    # ===============================================
 
                     # 6. ---- 설치 스크립트 생성 및 실행 ----
                     # 압축을 해제할 상위 폴더 (예: /Users/tsk/Downloads)
@@ -762,37 +791,114 @@ if __name__ == "__main__":
                     restart_cmd = f"open '{current_app_path}'"
 
                     updater_script_content = f"""
-import sys
 import os
+import sys
 import time
 import shutil
 import subprocess
+import platform
+import glob
 
-# 부모 프로세스(메인 앱)가 완전히 종료될 시간을 줌
-time.sleep(1)
+# --- f-string을 통해 main.py로부터 전달받는 경로들 ---
+current_app_path = r'{str(app_install_dir)}'
+old_app_path = current_app_path + '.old'
+archive_path = r'{final_path}'
+extract_dir = r'{str(app_install_dir.parent)}'
+restart_cmd_str = r"{restart_cmd}"
+app_executable_name = r"{app_executable_name}"
 
 try:
-    # 기존 .app 번들 삭제
-    print('Removing old application bundle...')
-    shutil.rmtree(r'{current_app_path}', ignore_errors=True)
+    # 메인 앱이 종료될 시간을 줌
+    time.sleep(1.5)
+
+    # 1. 기존 앱/폴더를 .old로 이동
+    print(f'Moving {{current_app_path}} to {{old_app_path}}')
+    if os.path.exists(current_app_path):
+        shutil.move(current_app_path, old_app_path)
+
+    # 2. 1단계 압축 풀기 (OS별 최적화된 방식)
+    print(f'Extracting primary archive {{archive_path}}...')
+    if sys.platform == "darwin":
+        tar_cmd = f"tar -xzf '{{archive_path}}' -C '{{extract_dir}}'"
+        subprocess.run(tar_cmd, shell=True, check=True)
+    else: # Windows and others
+        shutil.unpack_archive(archive_path, extract_dir)
     
-    # 다운로드한 새 버전의 압축 풀기
-    print('Extracting new version...')
-    shutil.unpack_archive(r'{final_path}', r'{extract_to_dir}')
+    # 3. OS에 맞는 2단계 압축 파일 찾기
+    print("Searching for platform-specific archive recursively...")
+    arch_suffix = ""
+    if sys.platform == "darwin":
+        if platform.machine() == "arm64":
+            arch_suffix = "mac-arm64"
+        else:
+            arch_suffix = "mac-x86_64"
+    elif sys.platform == "win32":
+        arch_suffix = "win-x86"
     
-    # 새 버전 앱 재시작
+    if not arch_suffix:
+        raise RuntimeError(f"Unsupported platform: {{sys.platform}}")
+
+    # (핵심 수정) .zip 확장자를 포함하여 파일 검색
+    zip_pattern = os.path.join(extract_dir, '**', f'*-{{arch_suffix}}.zip')
+    found_archives = glob.glob(zip_pattern, recursive=True)
+    if not found_archives:
+        raise FileNotFoundError(f"Could not find platform archive with pattern: {{zip_pattern}}")
+    
+    platform_archive_path = found_archives[0]
+    print(f"Found platform archive: {{platform_archive_path}}")
+
+    # 4. 2단계 압축 풀기 (OS별 최적화된 방식)
+    print("Unpacking platform archive...")
+    if sys.platform == "darwin":
+        ditto_cmd = f"ditto -xk '{{platform_archive_path}}' '{{extract_dir}}'"
+        subprocess.run(ditto_cmd, shell=True, check=True)
+    else: # Windows and others
+        shutil.unpack_archive(platform_archive_path, extract_dir)
+    
+    # 5. OS별 후처리
+    if sys.platform == "darwin":
+        quarantine_cmd = f"xattr -dr com.apple.quarantine '{current_app_path}'"
+        print(f"Removing quarantine: {{quarantine_cmd}}")
+        subprocess.run(quarantine_cmd, shell=True)
+        
+        executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
+        if os.path.exists(executable_path):
+            print(f"Setting execute permission on: {{executable_path}}")
+            chmod_cmd = f"chmod +x '{{executable_path}}'"
+            subprocess.run(chmod_cmd, shell=True)
+
+    # 6. 새 앱 실행
     print('Restarting application...')
-    subprocess.Popen({restart_cmd}, shell=True)
+    subprocess.Popen(restart_cmd_str, shell=True)
+
+    # 7. 중간 파일 및 .old 폴더 정리
+    print("Cleaning up intermediate files...")
+    all_zips = glob.glob(os.path.join(extract_dir, '*.zip'))
+    for zip_file in all_zips:
+        os.remove(zip_file)
+
+    time.sleep(5)
+    if os.path.exists(old_app_path):
+        print(f'Cleaning up {{old_app_path}}')
+        shutil.rmtree(old_app_path, ignore_errors=True)
 
 except Exception as e:
     print(f'Update script failed: {{e}}')
-
-# 업데이트 스크립트 자체 삭제
-try:
-    os.remove(__file__)
-except OSError:
-    pass
+    if os.path.exists(old_app_path) and not os.path.exists(current_app_path):
+        try:
+            shutil.move(old_app_path, current_app_path)
+        except Exception as e_restore:
+            print(f"Failed to restore old version: {{e_restore}}")
+        
+finally:
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+    try:
+        os.remove(__file__)
+    except OSError:
+        pass
 """
+
                     # 임시 폴더에 업데이트 스크립트 작성
                     script_path = os.path.join(writable_dir, '_updater.py')
                     with open(script_path, 'w', encoding='utf-8') as f:
@@ -802,7 +908,7 @@ except OSError:
                     updater_log_path = os.path.join(writable_dir, 'updater.log')
                     with open(updater_log_path, 'w', encoding='utf-8') as log_file:
                         subprocess.Popen(
-                            [sys.executable, script_path],
+                            ['/usr/bin/python3', script_path], # <--- 이렇게 변경
                             stdout=log_file,
                             stderr=log_file
                         )
@@ -821,7 +927,40 @@ except OSError:
                     print(f"Error during manual update process: {e}")
 
     except Exception as e:
-        print(f"Error during update check: {e}")
+        # ---------------- TUF 업데이트 실패 시 '플랜 B' 실행 ----------------
+        print(f"TUF update failed: {e}")
+        print("Attempting fallback update check via GitHub API...")
+        
+        try:
+            # GitHub API를 통해 최신 릴리즈 정보 가져오기
+            api_url = "https://api.github.com/repos/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status() # HTTP 오류가 있으면 예외 발생
+            
+            latest_release = response.json()
+            # tag_name에서 'v'를 제거하여 버전 번호만 추출
+            latest_version_str = latest_release.get("tag_name", "v0.0.0").lstrip('v')
+            
+            # 현재 버전과 최신 버전 비교
+            if parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
+                
+                # 사용자에게 수동 업데이트 안내
+                if messagebox.askyesno(
+                    "수동 업데이트 필요",
+                    f"새로운 버전(v{latest_version_str})이 발견되었지만, 자동 업데이트에 실패했습니다.\n\n"
+                    "다운로드 페이지로 이동하시겠습니까?"
+                ):
+                    # GitHub 릴리즈 페이지를 웹 브라우저로 열기
+                    download_url = latest_release.get("html_url")
+                    if download_url:
+                        webbrowser.open(download_url)
+        
+        except requests.exceptions.RequestException as api_error:
+            # 네트워크 오류 등으로 GitHub API 접근 실패 시
+            print(f"GitHub API check failed: {api_error}")
+        except Exception as fallback_error:
+            # 기타 예외 처리
+            print(f"An unexpected error occurred during fallback check: {fallback_error}")
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)
     try:

@@ -6,7 +6,7 @@
         "root": 365,
         "snapshot": 365,
         "targets": 365,
-        "timestamp": 1
+        "timestamp": 30
     },
     "key_map": {
         "root": [

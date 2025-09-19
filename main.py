@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.31"
+CURRENT_VERSION = "1.1.32"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -447,14 +447,14 @@ class App(ctk.CTk):
         self.builder_frame.grid_columnconfigure(0, weight=1)
         self.builder_title_label = ctk.CTkLabel(self.builder_frame, font=self.font_large_bold); self.builder_title_label.grid(row=0, column=0, columnspan=4, padx=15, pady=(15,10), sticky="w")
         
-        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"]).grid(row=1, column=0, padx=15, pady=5, sticky="ew")
+        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"])
         self.root_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.root_label.grid(row=2, column=0, columnspan=4, padx=15, pady=(10,2), sticky="w")
         self.builder_root_var = tk.StringVar(value="C"); self.builder_root_menu = ctk.CTkOptionMenu(self.builder_frame, values=App.NOTE_NAMES_SHARP, variable=self.builder_root_var, font=self.font_main, dropdown_font=self.font_main); self.builder_root_menu.grid(row=3, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
         
         self.quality_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.quality_label.grid(row=4, column=0, columnspan=4, padx=15, pady=(10,2), sticky="w")
         self.builder_quality_var = tk.StringVar(value="Major"); self.builder_quality_menu = ctk.CTkOptionMenu(self.builder_frame, values=App.QUALITY_SYMBOLS, variable=self.builder_quality_var, font=self.font_main, dropdown_font=self.font_main); self.builder_quality_menu.grid(row=5, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
         
-        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"]).grid(row=6, column=0, padx=15, pady=10, sticky="ew")
+        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"])
         
         self.tensions_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.tensions_label.grid(row=7, column=0, columnspan=4, padx=15, pady=(5,5), sticky="w")
         self.tension_button_frame = ctk.CTkFrame(self.builder_frame, fg_color="transparent"); self.tension_button_frame.grid(row=8, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
@@ -640,41 +640,55 @@ if __name__ == "__main__":
     import sys
     import os
     import logging
+    import shutil
+    from tuf.ngclient import Updater
 
     logging.basicConfig(level=logging.DEBUG)
-    logging.getLogger('tufup').setLevel(logging.DEBUG)
+    logging.getLogger('tuf').setLevel(logging.DEBUG)
 
     try:
-        from tufup.client import Client
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
         writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'
         metadata_dir = writable_dir / 'metadata'
         os.makedirs(metadata_dir, exist_ok=True)
         bundled_root_json_path_str = App.resource_path('root.json')
-        bundled_root_json_content = Path(bundled_root_json_path_str).read_text()
-        root_json_path = metadata_dir / 'root.json'
-        root_json_path.write_text(bundled_root_json_content)
+        
+        # Always copy the bundled root.json to the cache, overwriting any existing file.
+        shutil.copy(bundled_root_json_path_str, metadata_dir / 'root.json')
+
         if getattr(sys, 'frozen', False):
             app_install_dir = Path(sys.executable).parent.parent.parent
         else:
             app_install_dir = Path(__file__).parent
+        
         METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/metadata'
         TARGET_BASE_URL = 'https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/'
         target_dir = writable_dir / 'targets'
         os.makedirs(target_dir, exist_ok=True)
         
-        client = Client(
-            app_name=APP_NAME,
-            app_install_dir=str(app_install_dir),
-            current_version=CURRENT_VERSION,
+        updater = Updater(
             metadata_dir=str(metadata_dir),
             metadata_base_url=METADATA_BASE_URL,
             target_dir=str(target_dir),
             target_base_url=TARGET_BASE_URL,
         )
-        if client.check_for_updates():
-            if messagebox.askyesno("Update available", "An update is available. Do you want to install it?"):
-                client.update()
+        updater.refresh()
+        
+        # Find all available targets for the app
+        all_targets = updater.get_all_targets()
+        app_targets = [t for t in all_targets if t.name.startswith(APP_NAME)]
+        
+        # Find the latest available version
+        latest_target = max(app_targets, key=lambda t: t.version) if app_targets else None
+
+        if latest_target and latest_target.version > CURRENT_VERSION:
+            if messagebox.askyesno("Update available", f"An update to version {latest_target.version} is available. Do you want to install it?"):
+                # Download and install the update
+                updater.download_target(latest_target)
+                updater.install_on_exit([sys.executable] + sys.argv)
+                # Exit the application to allow the update to be applied
+                sys.exit(0)
+
     except Exception as e: 
         print(f"Error during update check: {e}")
     

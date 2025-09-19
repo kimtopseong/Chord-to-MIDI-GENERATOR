@@ -91,8 +91,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install tufup
-        run: pip install "tufup==0.9.0"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -113,50 +113,12 @@ jobs:
           printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
           printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
 
-      - name: Prepare TUF repository dirs (non-interactive)
-        run: |
-          mkdir -p repository/metadata repository/targets
-
-      - name: Seed & validate root.json (prefer repo file)
-        shell: bash
-        env:
-          TUF_ROOT_JSON: ${{ secrets.TUF_ROOT_JSON }}
-          TUF_ROOT_JSON_B64: ${{ secrets.TUF_ROOT_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          if [ -f root.json ]; then
-            echo "Using repo root.json"
-            cp -f root.json repository/metadata/root.json
-          elif [ -n "${TUF_ROOT_JSON_B64:-}" ]; then
-            echo "Decoding TUF_ROOT_JSON_B64"
-            echo "$TUF_ROOT_JSON_B64" | base64 -d > repository/metadata/root.json
-          elif [ -n "${TUF_ROOT_JSON:-}" ]; then
-            echo "Using plaintext TUF_ROOT_JSON secret"
-            printf "%s" "$TUF_ROOT_JSON" > repository/metadata/root.json
-          else
-            echo "ERROR: No root.json available (neither repo file nor secrets)"
-            exit 1
-          fi
-          python -c "import json,sys,pathlib; p=pathlib.Path('repository/metadata/root.json'); d=p.read_text(encoding='utf-8'); json.loads(d); print('root.json OK (length:', len(d), ')')"
-
       - name: Create and Sign TUF metadata
         shell: bash
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-
-          rm -f repository/metadata/targets.json repository/metadata/snapshot.json
-
-          # Ensure repository directory is clean before starting
-          rm -rf repository
-          mkdir -p repository/metadata repository/targets
-
-          # Seed & validate root.json (prefer repo file) - This step runs before this one.
-          # So root.json is already in repository/metadata/root.json when tuf_manager.py starts.
-
           python tuf_manager.py "$VERSION" "artifacts" "keys" "repository"
-
-          find repository -maxdepth 2 -type f -print
 
       - name: Publish metadata to gh-pages
         uses: peaceiris/actions-gh-pages@v3
@@ -164,7 +126,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./repository
           publish_branch: gh-pages
-          keep_files: true
+          force_orphan: true
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2

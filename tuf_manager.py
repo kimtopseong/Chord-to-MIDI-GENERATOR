@@ -2,81 +2,105 @@ import os
 import sys
 import json
 import pathlib
-import logging
 import shutil
-import tarfile # Import tarfile
-from tufup.repo import Repository, DEFAULT_EXPIRATION_DAYS, Keys # Import Keys class
-from tufup.repo import Roles # Import Roles class
+import tarfile
+from datetime import datetime, timedelta
+
+from tuf.api.metadata import (
+    Root, Snapshot, Targets, Timestamp, Metadata, TargetFile
+)
+from tuf.api.serialization.json import JSONSerializer
+from securesystemslib.signer import SSlibSigner
+from securesystemslib.interface import (
+    import_ed25519_privatekey_from_file,
+)
 
 # Configure logging
+import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, repo_dir: str):
-    logger.info(f"Starting TUF metadata management for version: {app_version}")
-    logger.info(f"Artifacts directory: {artifacts_dir}")
-    logger.info(f"Keys directory: {keys_dir}")
-    logger.info(f"Repository directory: {repo_dir}")
+class TufRepoManager:
+    def __init__(self, repo_dir: str, keys_dir: str, app_name: str):
+        self.repo_dir = pathlib.Path(repo_dir)
+        self.keys_dir = pathlib.Path(keys_dir)
+        self.app_name = app_name
+        self.metadata_dir = self.repo_dir / 'metadata'
+        self.targets_dir = self.repo_dir / 'targets'
+        self.metadata_dir.mkdir(parents=True, exist_ok=True)
+        self.targets_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load config from .tufup-repo-config
-    config_path = pathlib.Path(os.getcwd()) / '.tufup-repo-config'
-    if not config_path.exists():
-        logger.error(f"Config file not found: {config_path}")
-        sys.exit(1)
-    
-    # Use Repository.from_config() to initialize the repository
-    repository = Repository.from_config()
+    def _load_metadata(self) -> dict[str, Metadata]:
+        meta = {}
+        for role in ["root", "targets", "snapshot", "timestamp"]:
+            path = self.metadata_dir / f"{role}.json"
+            if path.exists():
+                meta[role] = Metadata.from_file(str(path))
+        return meta
 
-    # Ensure the repository paths are correctly set
-    repository.repo_dir = pathlib.Path(repo_dir).resolve()
-    repository.keys_dir = pathlib.Path(keys_dir).resolve()
-    
-    # Ensure dirs exist
-    for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
-        path.mkdir(parents=True, exist_ok=True)
+    def _sign_metadata(self, role_name: str, metadata: Metadata):
+        key_path = self.keys_dir / role_name
+        if not key_path.exists():
+            raise FileNotFoundError(f"Key file not found: {key_path}")
+        
+        private_key = import_ed25519_privatekey_from_file(str(key_path))
+        signer = SSlibSigner(private_key)
+        metadata.sign(signer, append=True)
 
-    # Create a temporary directory to combine all platform bundles
-    combined_bundle_dir = pathlib.Path(artifacts_dir) / f"combined_bundle_{app_version}"
-    combined_bundle_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Created combined bundle directory: {combined_bundle_dir}")
+    def run(self, app_version: str, artifacts_dir: str):
+        logger.info("Loading existing metadata...")
+        meta = self._load_metadata()
 
-    # Copy all platform-specific zip files into the temporary directory
-    found_bundles = False
-    for root, dirs, files in os.walk(artifacts_dir):
-        if combined_bundle_dir.name in dirs:
-            dirs.remove(combined_bundle_dir.name)
+        if "root" not in meta:
+            logger.error("root.json not found. Cannot proceed.")
+            sys.exit(1)
 
-        for artifact_file in files:
-            if artifact_file.startswith(f"{repository.app_name}-v{app_version}") and artifact_file.endswith(".zip"):
-                src_path = pathlib.Path(root) / artifact_file
-                dst_path = combined_bundle_dir / artifact_file
-                shutil.copy(src_path, dst_path)
-                logger.info(f"Copied {src_path} to {dst_path}")
-                found_bundles = True
-    
-    if not found_bundles:
-        logger.error(f"No artifact bundles found for version {app_version} in {artifacts_dir}")
-        sys.exit(1)
+        # 1. Update root metadata if needed (e.g., refresh expiration)
+        root = meta["root"].signed
+        root.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=365)
+        root.version += 1
+        logger.info(f"Root version bumped to {root.version}")
 
-    # Add the combined bundle to the repository
-    logger.info(f"Adding combined bundle for version: {app_version}")
-    repository.add_bundle(
-        new_bundle_dir=combined_bundle_dir,
-        new_version=app_version,
-        skip_patch=False,
-        custom_metadata=None,
-        required=False
-    )
-    logger.info(f"Combined bundle added for version: {app_version}")
+        # 2. Create a combined archive and add it to targets
+        targets = meta.get("targets", Metadata(Targets(expires=datetime.utcnow() + timedelta(days=7)))).signed
+        targets.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
+        
+        archive_filename = f"{self.app_name}-{app_version}.tar.gz"
+        archive_path = self.targets_dir / archive_filename
+        
+        with tarfile.open(archive_path, "w:gz") as tar:
+            for root_dir, _, files in os.walk(artifacts_dir):
+                for file in files:
+                    if file.endswith(".zip"):
+                        full_path = pathlib.Path(root_dir) / file
+                        tar.add(full_path, arcname=file)
+                        logger.info(f"Added to archive: {file}")
 
-    # Publish changes (sign and save metadata)
-    logger.info("Publishing changes (signing metadata)...")
-    repository.publish_changes(private_key_dirs=[pathlib.Path(keys_dir)])
-    logger.info("Metadata published successfully.")
+        target_file = TargetFile.from_file(str(archive_path), str(archive_path.relative_to(self.repo_dir)))
+        targets.targets[archive_filename] = target_file
+        logger.info(f"Added to targets: {archive_filename}")
 
-    # Clean up the temporary combined bundle directory
-    shutil.rmtree(combined_bundle_dir)
-    logger.info(f"Cleaned up combined bundle directory: {combined_bundle_dir}")
+        # 3. Update snapshot
+        snapshot = meta.get("snapshot", Metadata(Snapshot(expires=datetime.utcnow() + timedelta(days=7)))).signed
+        snapshot.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
+        snapshot.meta["targets.json"] = MetaFile(version=targets.version)
+
+        # 4. Update timestamp
+        timestamp = meta.get("timestamp", Metadata(Timestamp(expires=datetime.utcnow() + timedelta(days=1)))).signed
+        timestamp.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=1)
+        timestamp.snapshot_meta = MetaFile(version=snapshot.version)
+
+        # 5. Sign and write all metadata
+        for role_name, metadata_obj in [("root", meta["root"]), ("targets", Metadata(targets)), ("snapshot", Metadata(snapshot)), ("timestamp", Metadata(timestamp))]:
+            metadata_obj.signatures.clear()
+            self._sign_metadata(role_name, metadata_obj)
+            metadata_obj.to_file(str(self.metadata_dir / f"{role_name}.json"), JSONSerializer(compact=False))
+            logger.info(f"Signed and wrote {role_name}.json")
+
+        # Create versioned root.json
+        versioned_root_path = self.metadata_dir / f"{root.version}.root.json"
+        shutil.copy(self.metadata_dir / "root.json", versioned_root_path)
+        logger.info(f"Created versioned root metadata: {versioned_root_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
@@ -88,4 +112,5 @@ if __name__ == "__main__":
     keys_dir = sys.argv[3]
     repo_dir = sys.argv[4]
 
-    manage_tuf_metadata(app_version, artifacts_dir, keys_dir, repo_dir)
+    manager = TufRepoManager(repo_dir, keys_dir, "Chord-to-MIDI-GENERATOR")
+    manager.run(app_version, artifacts_dir)

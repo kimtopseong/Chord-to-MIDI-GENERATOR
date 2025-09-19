@@ -5,123 +5,148 @@ import pathlib
 import shutil
 import tarfile
 from datetime import datetime, timedelta
-
-from tuf.api.metadata import (
-    Root, Snapshot, Targets, Timestamp, Metadata, TargetFile, MetaFile
-)
-from tuf.api.serialization.json import JSONSerializer
-from securesystemslib.signer import SSlibSigner
-from securesystemslib.interface import (
-    import_ed25519_privatekey_from_file,
-)
-
-# Configure logging
 import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+try:
+    from tuf.api.metadata import (
+        Root, Snapshot, Targets, Timestamp, Metadata, TargetFile, MetaFile
+    )
+    from tuf.api.serialization.json import JSONSerializer
+    from securesystemslib.signer import SSlibSigner
+    from securesystemslib.interface import (
+        import_ed25519_privatekey_from_file,
+    )
+except ImportError as e:
+    logging.error(f"Failed to import TUF/securesystemslib modules: {e}")
+    sys.exit(1)
+
+# 1. Setup logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-class TufRepoManager:
-    def __init__(self, repo_dir: str, keys_dir: str, app_name: str):
-        self.repo_dir = pathlib.Path(repo_dir).resolve()
-        self.keys_dir = pathlib.Path(keys_dir).resolve()
-        self.app_name = app_name
-        self.metadata_dir = self.repo_dir / 'metadata'
-        self.targets_dir = self.repo_dir / 'targets'
-        self.metadata_dir.mkdir(parents=True, exist_ok=True)
-        self.targets_dir.mkdir(parents=True, exist_ok=True)
+def main():
+    # 2. Get base paths
+    try:
+        app_version = sys.argv[1]
+        artifacts_dir_name = sys.argv[2]
+        keys_dir_name = sys.argv[3]
+        repo_dir_name = sys.argv[4]
+        app_name = "Chord-to-MIDI-GENERATOR"
 
-    def _load_metadata(self) -> dict[str, Metadata]:
-        meta = {}
-        for role in ["root", "targets", "snapshot", "timestamp"]:
-            path = self.metadata_dir / f"{role}.json"
-            if path.exists():
-                meta[role] = Metadata.from_file(str(path))
-        return meta
+        cwd = pathlib.Path.cwd()
+        logger.info(f"Current Working Directory: {cwd}")
 
-    def _sign_metadata(self, role_name: str, metadata: Metadata):
-        key_path = self.keys_dir / role_name
-        if not key_path.exists():
-            raise FileNotFoundError(f"Key file not found: {key_path}")
-        
-        private_key = import_ed25519_privatekey_from_file(str(key_path))
-        signer = SSlibSigner(private_key)
-        metadata.sign(signer, append=True)
+        artifacts_dir = cwd / artifacts_dir_name
+        keys_dir = cwd / keys_dir_name
+        repo_dir = cwd / repo_dir_name
+        metadata_dir = repo_dir / "metadata"
+        targets_dir = repo_dir / "targets"
 
-    def run(self, app_version: str, artifacts_dir: str):
-        logger.info("Loading existing metadata...")
-        meta = self._load_metadata()
-
-        if "root" not in meta:
-            logger.error("root.json not found. Cannot proceed.")
+        if not artifacts_dir.is_dir():
+            logger.error(f"Artifacts directory not found: {artifacts_dir}")
+            sys.exit(1)
+        if not keys_dir.is_dir():
+            logger.error(f"Keys directory not found: {keys_dir}")
             sys.exit(1)
 
-        # 1. Update root metadata
-        root = meta["root"].signed
-        root.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=365)
-        root.version += 1
-        logger.info(f"Root version bumped to {root.version}")
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        targets_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. Create a combined archive
-        targets = meta.get("targets", Metadata(Targets(expires=datetime.utcnow() + timedelta(days=7)))).signed
-        targets.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
-        
-        archive_filename = f"{self.app_name}-{app_version}.tar.gz"
-        archive_path = self.targets_dir / archive_filename
-        
-        logger.info(f"Creating archive at: {archive_path}")
-        with tarfile.open(archive_path, "w:gz") as tar:
-            for root_dir, _, files in os.walk(artifacts_dir):
-                for file in files:
-                    if file.endswith(".zip"):
-                        full_path = pathlib.Path(root_dir) / file
-                        tar.add(full_path, arcname=file)
-                        logger.info(f"Added to archive: {file}")
-
-        # DEBUG: Check if the file was created
-        if not archive_path.exists():
-            logger.error(f"FATAL: Archive file was NOT created at '{archive_path}'")
-            logger.error(f"Current Working Directory: {pathlib.Path.cwd()}")
-            logger.error(f"Contents of targets_dir ({self.targets_dir}): {os.listdir(self.targets_dir)}")
-            sys.exit(1)
-        else:
-            logger.info(f"SUCCESS: Verified archive exists at '{archive_path}'")
-
-        # 3. Add archive to targets metadata
-        target_file = TargetFile.from_file(str(archive_path), archive_filename)
-        targets.targets[archive_filename] = target_file
-        logger.info(f"Added to targets: {archive_filename}")
-
-        # 4. Update snapshot
-        snapshot = meta.get("snapshot", Metadata(Snapshot(expires=datetime.utcnow() + timedelta(days=7)))).signed
-        snapshot.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
-        snapshot.meta["targets.json"] = MetaFile(version=targets.version)
-
-        # 5. Update timestamp
-        timestamp = meta.get("timestamp", Metadata(Timestamp(expires=datetime.utcnow() + timedelta(days=1)))).signed
-        timestamp.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=1)
-        timestamp.snapshot_meta = MetaFile(version=snapshot.version)
-
-        # 6. Sign and write all metadata
-        for role_name, metadata_obj in [("root", meta["root"]), ("targets", Metadata(targets)), ("snapshot", Metadata(snapshot)), ("timestamp", Metadata(timestamp))]:
-            metadata_obj.signatures.clear()
-            self._sign_metadata(role_name, metadata_obj)
-            metadata_obj.to_file(str(self.metadata_dir / f"{role_name}.json"), JSONSerializer(compact=False))
-            logger.info(f"Signed and wrote {role_name}.json")
-
-        # Create versioned root.json
-        versioned_root_path = self.metadata_dir / f"{root.version}.root.json"
-        shutil.copy(self.metadata_dir / "root.json", versioned_root_path)
-        logger.info(f"Created versioned root metadata: {versioned_root_path}")
-
-if __name__ == "__main__":
-    if len(sys.argv) != 5:
-        logger.error("Usage: python tuf_manager.py <app_version> <artifacts_dir> <keys_dir> <repo_dir>")
+    except IndexError:
+        logger.error(
+            "Usage: python tuf_manager.py <app_version> <artifacts_dir> <keys_dir> <repo_dir>"
+        )
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"An error occurred during setup: {e}")
         sys.exit(1)
 
-    app_version = sys.argv[1]
-    artifacts_dir = sys.argv[2]
-    keys_dir = sys.argv[3]
-    repo_dir = sys.argv[4]
+    # 3. Load or create metadata
+    logger.info("Loading or creating metadata...")
+    
+    # Root
+    root_path = metadata_dir / "root.json"
+    if not root_path.exists():
+        logger.error(f"Initial root.json not found at {root_path}")
+        sys.exit(1)
+    root_meta = Metadata.from_file(str(root_path))
+    root = root_meta.signed
+    root.version += 1
+    root.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=365)
+    logger.info(f"Root version bumped to {root.version}")
 
-    manager = TufRepoManager(repo_dir, keys_dir, "Chord-to-MIDI-GENERATOR")
-    manager.run(app_version, artifacts_dir)
+    # Targets
+    targets_path = metadata_dir / "targets.json"
+    targets_meta = Metadata.from_file(str(targets_path)) if targets_path.exists() else Metadata(Targets())
+    targets = targets_meta.signed
+    targets.version += 1
+    targets.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
+
+    # Snapshot
+    snapshot_path = metadata_dir / "snapshot.json"
+    snapshot_meta = Metadata.from_file(str(snapshot_path)) if snapshot_path.exists() else Metadata(Snapshot())
+    snapshot = snapshot_meta.signed
+    snapshot.version += 1
+    snapshot.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=7)
+
+    # Timestamp
+    timestamp = Timestamp()
+    timestamp.version += 1
+    timestamp.expires = datetime.utcnow().replace(microsecond=0) + timedelta(days=1)
+
+    # 4. Create archive and update targets
+    logger.info("Creating and adding archive to targets...")
+    archive_filename = f"{app_name}-{app_version}.tar.gz"
+    archive_path = targets_dir / archive_filename
+    
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for item in artifacts_dir.glob("**/*.zip"):
+            tar.add(item, arcname=item.name)
+            logger.info(f"  - Added {item.name} to archive.")
+
+    if not archive_path.exists():
+        logger.error(f"FATAL: Archive file was not created at '{archive_path}'")
+        sys.exit(1)
+    
+    target_file = TargetFile.from_file(str(archive_path), archive_filename)
+    targets.targets[archive_filename] = target_file
+    logger.info(f"Added '{archive_filename}' to targets.")
+
+    # 5. Update meta fields in snapshot and timestamp
+    snapshot.meta["targets.json"] = MetaFile(version=targets.version)
+    timestamp.snapshot_meta = MetaFile(version=snapshot.version)
+
+    # 6. Sign all metadata
+    logger.info("Signing all metadata...")
+    serializer = JSONSerializer(compact=False)
+    
+    for role_name, meta_obj in [
+        ("root", root_meta),
+        ("targets", targets_meta),
+        ("snapshot", snapshot_meta),
+        ("timestamp", Metadata(timestamp)),
+    ]:
+        key_path = keys_dir / role_name
+        private_key = import_ed25519_privatekey_from_file(str(key_path))
+        signer = SSlibSigner(private_key)
+        
+        # Clear old signatures and sign
+        meta_obj.signatures.clear()
+        meta_obj.sign(signer, append=True)
+        
+        # Write to file
+        path = metadata_dir / f"{role_name}.json"
+        meta_obj.to_file(str(path), serializer)
+        logger.info(f"  - Signed and wrote {path}")
+
+    # 7. Create versioned root.json
+    versioned_root_path = metadata_dir / f"{root.version}.root.json"
+    shutil.copy(root_path, versioned_root_path)
+    logger.info(f"Created versioned root: {versioned_root_path}")
+
+    logger.info("TUF metadata update complete.")
+
+if __name__ == "__main__":
+    main()

@@ -76,7 +76,7 @@ class TufRepoManager:
                         tar.add(full_path, arcname=file)
                         logger.info(f"Added to archive: {file}")
 
-        target_file = TargetFile.from_file(os.path.abspath(archive_path), str(archive_path.relative_to(self.repo_dir)))
+        target_file = TargetFile.from_file(str(archive_path), str(archive_path.relative_to(self.repo_dir)))
         targets.targets[archive_filename] = target_file
         logger.info(f"Added to targets: {archive_filename}")
 

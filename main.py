@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.72"
+CURRENT_VERSION = "1.1.73"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -798,8 +798,14 @@ except OSError:
                     with open(script_path, 'w', encoding='utf-8') as f:
                         f.write(updater_script_content)
 
-                    # 별도의 프로세스로 업데이트 스크립트 실행
-                    subprocess.Popen([sys.executable, script_path])
+                    # 로그 파일을 지정하고, 별도 프로세스로 업데이트 스크립트 실행
+                    updater_log_path = os.path.join(writable_dir, 'updater.log')
+                    with open(updater_log_path, 'w', encoding='utf-8') as log_file:
+                        subprocess.Popen(
+                            [sys.executable, script_path],
+                            stdout=log_file,
+                            stderr=log_file
+                        )
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)

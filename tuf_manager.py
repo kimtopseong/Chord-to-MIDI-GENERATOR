@@ -37,6 +37,9 @@ def manage_tuf_metadata(app_version: str, artifacts_dir: str, keys_dir: str, rep
     for path in [repository.keys_dir, repository.metadata_dir, repository.targets_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
+    # Force root.json update by refreshing expiration date
+    repository.refresh_expiration_date(role_name='root')
+
     # Create a temporary directory to combine all platform bundles
     combined_bundle_dir = pathlib.Path(artifacts_dir) / f"combined_bundle_{app_version}"
     combined_bundle_dir.mkdir(parents=True, exist_ok=True)

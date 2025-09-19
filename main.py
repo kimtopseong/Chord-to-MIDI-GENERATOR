@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.65"
+CURRENT_VERSION = "1.1.66"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -642,10 +642,12 @@ if __name__ == "__main__":
     import logging
     import shutil
     import re
-    # ---- 수정된 부분: 필요한 라이브러리 import ----
+    # ---- 수정된 부분: 설치 로직에 필요한 라이브러리 import ----
     import requests
     import hashlib
-    # -----------------------------------------
+    import subprocess
+    import time
+    # -------------------------------------------------
     from packaging.version import parse as parse_version
     from tuf.ngclient import Updater
     from tuf.ngclient.config import UpdaterConfig
@@ -666,10 +668,16 @@ if __name__ == "__main__":
         bundled_root_json_path_str = App.resource_path('root.json')
         shutil.copy(bundled_root_json_path_str, metadata_dir / 'root.json')
 
+        # ---- 수정된 부분: app_install_dir 정의 위치 변경 ----
+        # PyInstaller로 빌드되었는지 여부에 따라 앱 설치 경로를 결정
         if getattr(sys, 'frozen', False):
-            app_install_dir = Path(sys.executable).parent.parent.parent
+            # .app 번들 내부의 MacOS 폴더에서 실행되므로, 상위 폴더로 여러 번 이동해야 .app 폴더에 도달
+            app_executable_path = Path(sys.executable)
+            app_install_dir = app_executable_path.parent.parent.parent
         else:
+            # 일반 파이썬 스크립트로 실행될 경우
             app_install_dir = Path(__file__).parent
+        # ---------------------------------------------------
         
         METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/metadata'
         target_dir = writable_dir / 'targets'
@@ -698,7 +706,6 @@ if __name__ == "__main__":
                     latest_version_str = version_str
                     latest_target = target_info
 
-        # ---- 여기부터 업데이트 로직 전체가 수정되었습니다 ----
         if latest_target and parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
             if messagebox.askyesno("Update available", f"An update to version {latest_version_str} is available. Do you want to install it?"):
                 
@@ -711,7 +718,7 @@ if __name__ == "__main__":
                     download_url = f"{base_url}/{tag_name}/{file_name}"
                     print(f"Downloading update from: {download_url}")
 
-                    # 2. requests를 사용하여 파일 다운로드 (스트리밍 및 타임아웃 적용)
+                    # 2. requests를 사용하여 파일 다운로드
                     resp = requests.get(download_url, stream=True, timeout=(5, 120))
                     resp.raise_for_status()
 
@@ -721,7 +728,7 @@ if __name__ == "__main__":
                     total_bytes = 0
 
                     with open(tmp_path, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=1024 * 1024): # 1MB chunks
+                        for chunk in resp.iter_content(chunk_size=1024 * 1024):
                             if chunk:
                                 f.write(chunk)
                                 hasher.update(chunk)
@@ -739,16 +746,65 @@ if __name__ == "__main__":
 
                     print("File hash & length verified successfully.")
 
-                    # 5. 검증 완료 후 임시 파일을 최종 파일로 원자적 교체
+                    # 5. 검증 완료 후 임시 파일을 최종 파일로 교체
                     final_path = os.path.join(str(target_dir), file_name)
                     os.replace(tmp_path, final_path)
+                    tmp_path = None # 성공적으로 옮겼으므로 에러 핸들러에서 삭제되지 않도록 None 처리
 
-                    # 6. TUF의 설치 스케줄링 기능 호출
-                    updater.install_on_exit([sys.executable] + sys.argv)
+                    # 6. ---- 설치 스크립트 생성 및 실행 ----
+                    # 압축을 해제할 상위 폴더 (예: /Users/tsk/Downloads)
+                    extract_to_dir = app_install_dir.parent
+                    
+                    # 현재 실행 중인 .app 번들의 경로 (예: /Users/tsk/Downloads/Chord-to-MIDI-GENERATOR.app)
+                    current_app_path = str(app_install_dir)
+                    
+                    # 재시작할 애플리케이션 경로
+                    restart_cmd = f"open '{current_app_path}'"
+
+                    updater_script_content = f"""
+import sys
+import os
+import time
+import shutil
+import subprocess
+
+# 부모 프로세스(메인 앱)가 완전히 종료될 시간을 줌
+time.sleep(1)
+
+try:
+    # 기존 .app 번들 삭제
+    print('Removing old application bundle...')
+    shutil.rmtree(r'{current_app_path}', ignore_errors=True)
+    
+    # 다운로드한 새 버전의 압축 풀기
+    print('Extracting new version...')
+    shutil.unpack_archive(r'{final_path}', r'{extract_to_dir}')
+    
+    # 새 버전 앱 재시작
+    print('Restarting application...')
+    subprocess.Popen({restart_cmd}, shell=True)
+
+except Exception as e:
+    print(f'Update script failed: {{e}}')
+
+# 업데이트 스크립트 자체 삭제
+try:
+    os.remove(__file__)
+except OSError:
+    pass
+"""
+                    # 임시 폴더에 업데이트 스크립트 작성
+                    script_path = os.path.join(writable_dir, '_updater.py')
+                    with open(script_path, 'w', encoding='utf-8') as f:
+                        f.write(updater_script_content)
+
+                    # 별도의 프로세스로 업데이트 스크립트 실행
+                    subprocess.Popen([sys.executable, script_path])
+                    
+                    # 메인 애플리케이션 종료
                     sys.exit(0)
 
                 except Exception as e:
-                    # 에러 발생 시 임시 파일 정리
                     if tmp_path and os.path.exists(tmp_path):
                         try:
                             os.remove(tmp_path)
@@ -757,7 +813,6 @@ if __name__ == "__main__":
                     
                     messagebox.showerror("Update Error", f"Failed to download or verify the update: {e}")
                     print(f"Error during manual update process: {e}")
-        # ---- 여기까지 업데이트 로직 수정 끝 ----
 
     except Exception as e:
         print(f"Error during update check: {e}")

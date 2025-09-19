@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.49"
+CURRENT_VERSION = "1.1.50"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -447,14 +447,14 @@ class App(ctk.CTk):
         self.builder_frame.grid_columnconfigure(0, weight=1)
         self.builder_title_label = ctk.CTkLabel(self.builder_frame, font=self.font_large_bold); self.builder_title_label.grid(row=0, column=0, columnspan=4, padx=15, pady=(15,10), sticky="w")
         
-        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"])
+        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"]).grid(row=1, column=0, padx=15, pady=5, sticky="ew")
         self.root_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.root_label.grid(row=2, column=0, columnspan=4, padx=15, pady=(10,2), sticky="w")
         self.builder_root_var = tk.StringVar(value="C"); self.builder_root_menu = ctk.CTkOptionMenu(self.builder_frame, values=App.NOTE_NAMES_SHARP, variable=self.builder_root_var, font=self.font_main, dropdown_font=self.font_main); self.builder_root_menu.grid(row=3, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
         
         self.quality_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.quality_label.grid(row=4, column=0, columnspan=4, padx=15, pady=(10,2), sticky="w")
         self.builder_quality_var = tk.StringVar(value="Major"); self.builder_quality_menu = ctk.CTkOptionMenu(self.builder_frame, values=App.QUALITY_SYMBOLS, variable=self.builder_quality_var, font=self.font_main, dropdown_font=self.font_main); self.builder_quality_menu.grid(row=5, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
         
-        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"])
+        ctk.CTkFrame(self.builder_frame, height=1, fg_color=ctk.ThemeManager.theme["CTkFrame"]["border_color"]).grid(row=6, column=0, padx=15, pady=10, sticky="ew")
         
         self.tensions_label = ctk.CTkLabel(self.builder_frame, font=self.font_bold); self.tensions_label.grid(row=7, column=0, columnspan=4, padx=15, pady=(5,5), sticky="w")
         self.tension_button_frame = ctk.CTkFrame(self.builder_frame, fg_color="transparent"); self.tension_button_frame.grid(row=8, column=0, columnspan=4, padx=15, pady=0, sticky="ew")
@@ -653,7 +653,6 @@ if __name__ == "__main__":
         os.makedirs(metadata_dir, exist_ok=True)
         bundled_root_json_path_str = App.resource_path('root.json')
         
-        # Always copy the bundled root.json to the cache, overwriting any existing file.
         shutil.copy(bundled_root_json_path_str, metadata_dir / 'root.json')
 
         if getattr(sys, 'frozen', False):
@@ -674,22 +673,27 @@ if __name__ == "__main__":
         )
         updater.refresh()
         
-        # Find all available targets for the app
-        all_targets = updater.get_all_targets()
-        app_targets = [t for t in all_targets if t.name.startswith(APP_NAME)]
-        
-        # Find the latest available version
-        latest_target = max(app_targets, key=lambda t: t.version) if app_targets else None
+        # Find the latest available target
+        latest_target = None
+        try:
+            # In python-tuf v2+, find_target is the way to check for a target
+            # We need to guess the target name. Let's try to find any target.
+            # A better approach would be to have a predictable target name or a custom metadata file.
+            # For now, we assume there's only one target per version.
+            all_targets = updater.trusted_set.targets.signed.targets
+            if all_targets:
+                latest_target = max(all_targets.values(), key=lambda t: t.version)
+
+        except Exception as e:
+            print(f"Could not find targets: {e}")
 
         if latest_target and latest_target.version > CURRENT_VERSION:
             if messagebox.askyesno("Update available", f"An update to version {latest_target.version} is available. Do you want to install it?"):
-                # Download and install the update
                 updater.download_target(latest_target)
                 updater.install_on_exit([sys.executable] + sys.argv)
-                # Exit the application to allow the update to be applied
                 sys.exit(0)
 
-    except Exception as e: 
+    except Exception as e:
         print(f"Error during update check: {e}")
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)

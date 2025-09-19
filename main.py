@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.54"
+CURRENT_VERSION = "1.1.56"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -104,7 +104,7 @@ class App(ctk.CTk):
         if inner.startswith('(') and inner.endswith(')'): inner = inner[1:-1]
         if not inner: return []
         parts = [p.strip() for p in inner.split(',') if p.strip()]
-        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:5|9|11|13)', p.replace('+', '#').replace('-', 'b'))]
+        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:5|9|11|13)', p.replace('+', '#').replace('-', ''))]
         seen, out = set(), []
         for t in norm:
             core_num = ''.join(filter(str.isdigit, t))
@@ -653,8 +653,10 @@ if __name__ == "__main__":
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
         writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'
         metadata_dir = writable_dir / 'metadata'
+        # Clear cache to force update check every time
+        if metadata_dir.exists():
+            shutil.rmtree(metadata_dir)
         os.makedirs(metadata_dir, exist_ok=True)
-        bundled_root_json_path_str = App.resource_path('root.json')
         
         shutil.copy(bundled_root_json_path_str, metadata_dir / 'root.json')
 
@@ -678,7 +680,7 @@ if __name__ == "__main__":
         updater.refresh() 
         
         latest_target = None
-        latest_version = parse_version(CURRENT_VERSION)
+        latest_version_str = CURRENT_VERSION
 
         trusted_set = updater._trusted_set
         all_targets = trusted_set.targets.targets
@@ -687,13 +689,15 @@ if __name__ == "__main__":
             match = re.search(r'-(\d+\.\d+\.\d+)\.tar\.gz$', target_name)
             if match:
                 version_str = match.group(1)
-                target_version = parse_version(version_str)
-                if target_version > latest_version:
-                    latest_version = target_version
+                if parse_version(version_str) > parse_version(latest_version_str):
+                    latest_version_str = version_str
                     latest_target = target_info
 
-        if latest_target:
-            if messagebox.askyesno("Update available", f"An update to version {latest_version} is available. Do you want to install it?"):
+        if latest_target and parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
+            if messagebox.askyesno("Update available", f"An update to version {latest_version_str} is available. Do you want to install it?"):
+                # Dynamically set the full URL for the target before downloading
+                tag_name = f"v{latest_version_str}"
+                latest_target.path = f"https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download/{tag_name}/{latest_target.path}"
                 updater.download_target(latest_target)
                 updater.install_on_exit([sys.executable] + sys.argv)
                 sys.exit(0)

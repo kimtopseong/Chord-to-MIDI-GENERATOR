@@ -923,7 +923,8 @@ finally:
                         # 경로에 공백이 있을 수 있으므로 따옴표로 감싸줍니다.
                         command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
                         # AppleScript는 내부의 큰따옴표를 이스케이프 처리해야 합니다.
-                        applescript = f'do shell script "{command_with_redirect.replace('"', '\\"')}" with administrator privileges'
+                        escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
+                        applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
                         subprocess.Popen(['osascript', '-e', applescript])
                     else: # For other platforms (Windows, etc.)
                         with open(updater_log_path, 'w', encoding='utf-8') as log_file:

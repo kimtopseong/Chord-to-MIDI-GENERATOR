@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.97"
+CURRENT_VERSION = "1.1.98"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -909,32 +909,19 @@ if __name__ == "__main__":
                             executable_path = os.path.join(app_install_dir.parent, app_executable_name)
                             restart_cmd = f"'{executable_path}'"
 
-                        extract_to_dir = app_install_dir.parent
-                        if sys.platform == "darwin":
-                            extract_str = str(extract_to_dir)
-                            if "AppTranslocation" in extract_str or not os.access(extract_str, os.W_OK):
-                                title = "자동 업데이트 불가 (Update Blocked)"
-                                message = (
-                                    "현재 애플리케이션이 읽기 전용 위치에서 실행되고 있어 자동 업데이트를 수행할 수 없습니다.\n"
-                                    "앱을 '응용 프로그램' 폴더 등 쓰기 가능한 위치로 이동한 뒤 다시 실행해 주세요."
-                                )
-                                messagebox.showerror(title, message)
-                                raise RuntimeError("macOS auto-update blocked due to read-only App Translocation location")
-
                         staging_root = Path(target_dir) / f"staging_{latest_version_str}_{sys.platform}"
                         if staging_root.exists():
                             shutil.rmtree(staging_root)
                         staging_root.mkdir(parents=True, exist_ok=True)
                         staging_root_str = str(staging_root)
+                        print(f"macOS updater staging directory: {staging_root_str}")
 
-                        def _escape_for_py(value: str) -> str:
-                            return value.replace("\\", "\\\\").replace('"', '\\"')
-
-                        escaped_current_app = _escape_for_py(current_app_path)
-                        escaped_archive_path = _escape_for_py(final_path)
-                        escaped_restart_cmd = _escape_for_py(restart_cmd)
-                        escaped_app_name = _escape_for_py(app_executable_name)
-                        escaped_staging_dir = _escape_for_py(staging_root_str)
+                        escaped_current_app = repr(current_app_path)
+                        escaped_archive_path = repr(final_path)
+                        escaped_restart_cmd = repr(restart_cmd)
+                        escaped_app_name = repr(app_executable_name)
+                        escaped_staging_dir = repr(staging_root_str)
+                        escaped_latest_version = repr(latest_version_str)
 
                         updater_script_template = textwrap.dedent("""\
 import os
@@ -944,13 +931,15 @@ import shutil
 import subprocess
 import platform
 import glob
+import json
 
-current_app_path = r"{current_app_path}"
+current_app_path = {current_app_path}
 old_app_path = current_app_path + '.old'
-archive_path = r"{archive_path}"
-restart_cmd_str = r"{restart_cmd}"
-app_executable_name = r"{app_executable_name}"
-staging_dir = r"{staging_dir}"
+archive_path = {archive_path}
+restart_cmd_str = {restart_cmd}
+app_executable_name = {app_executable_name}
+staging_dir = {staging_dir}
+latest_version = {latest_version}
 
 
 def ensure_clean_dir(path):
@@ -996,8 +985,7 @@ try:
 
     print("Unpacking platform archive...")
     if sys.platform == "darwin":
-        ditto_cmd = f"ditto -xk '{platform_archive_path}' '{platform_extract_dir}'"
-        subprocess.run(ditto_cmd, shell=True, check=True)
+        subprocess.run(["ditto", "-xk", platform_archive_path, platform_extract_dir], check=True)
     else:
         shutil.unpack_archive(platform_archive_path, platform_extract_dir)
 
@@ -1032,11 +1020,10 @@ try:
     shutil.move(new_app_root, current_app_path)
 
     if sys.platform == "darwin":
-        subprocess.run(f"xattr -dr com.apple.quarantine '{{current_app_path}}'", shell=True, check=False)
+        subprocess.run(["xattr", "-dr", "com.apple.quarantine", current_app_path], check=False)
         executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
         if os.path.exists(executable_path):
-            chmod_cmd = f"chmod +x '{{executable_path}}'"
-            subprocess.run(chmod_cmd, shell=True, check=False)
+            subprocess.run(["chmod", "+x", executable_path], check=False)
 
     print('Restarting application...')
     subprocess.Popen(restart_cmd_str, shell=True)
@@ -1056,6 +1043,17 @@ except Exception as e:
             shutil.move(old_app_path, current_app_path)
         except Exception as e_restore:
             print(f"Failed to restore old version: {{e_restore}}")
+    try:
+        dialog_message = f"자동 업데이트에 실패했습니다. (오류: {{e}})\n수동으로 v{{latest_version}} 버전을 설치해 주세요."
+        apple_script = f'display dialog {json.dumps(dialog_message)} buttons {{"OK"}} default button "OK"'
+        subprocess.run(["osascript", "-e", apple_script], check=False)
+    except Exception as dialog_err:
+        print(f"Failed to show failure dialog: {{dialog_err}}")
+    try:
+        subprocess.run(["open", "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"], check=False)
+    except Exception as open_err:
+        print(f"Failed to open releases page: {{open_err}}")
+    sys.exit(1)
 
 finally:
     if os.path.exists(archive_path):
@@ -1074,6 +1072,7 @@ finally:
                             restart_cmd=escaped_restart_cmd,
                             app_executable_name=escaped_app_name,
                             staging_dir=escaped_staging_dir,
+                            latest_version=escaped_latest_version,
                         )
 
                         script_path = os.path.join(writable_dir, '_updater.py')

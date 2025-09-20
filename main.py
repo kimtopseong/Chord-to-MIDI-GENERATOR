@@ -21,7 +21,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.109"
+CURRENT_VERSION = "1.1.110"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -1156,7 +1156,7 @@ def replace_app_via_finder(source_app: str, target_app: str) -> None:
         raise RuntimeError("Unable to determine destination directory for Finder replacement.")
 
     def _esc(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
+        return value.replace("\\\\", "\\\\\\\\").replace('"', '\\"')
 
     source_esc = _esc(source_app)
     target_esc = _esc(target_app)
@@ -1165,9 +1165,9 @@ def replace_app_via_finder(source_app: str, target_app: str) -> None:
 
     cmd = [
         "osascript",
-        "-e", f'set sourcePath to POSIX file "{source_esc}"',
-        "-e", f'set destPathString to "{target_esc}"',
-        "-e", f'set destParent to POSIX file "{parent_esc}" as alias',
+        "-e", "set sourcePath to POSIX file \"" + source_esc + "\"",
+        "-e", "set destPathString to \"" + target_esc + "\"",
+        "-e", "set destParent to POSIX file \"" + parent_esc + "\" as alias",
         "-e", 'set destExists to false',
         "-e", 'set destRef to missing value',
         "-e", 'try',
@@ -1180,7 +1180,7 @@ def replace_app_via_finder(source_app: str, target_app: str) -> None:
         "-e", '    with timeout of 600 seconds',
         "-e", '        if destExists then delete destRef',
         "-e", '        set duplicatedItem to duplicate sourcePath to destParent',
-        "-e", f'        set name of duplicatedItem to "{app_name}"',
+        "-e", '        set name of duplicatedItem to "' + app_name + '"',
         "-e", '    end timeout',
         "-e", 'end tell'
     ]
@@ -1188,7 +1188,7 @@ def replace_app_via_finder(source_app: str, target_app: str) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         details = (result.stderr or result.stdout or '').strip()
-        raise RuntimeError(f"Finder replacement failed: {{details}}")
+        raise RuntimeError("Finder replacement failed: " + details)
 
 
 def is_process_running(pid: int) -> bool:
@@ -1287,7 +1287,7 @@ try:
         shutil.move(new_app_root, current_app_path)
     except Exception as replace_err:
         if sys.platform == "darwin" and is_permission_error(replace_err):
-            print(f"Permission issue encountered ({{replace_err}}); attempting Finder-assisted replacement.")
+            print("Permission issue encountered (" + str(replace_err) + "); attempting Finder-assisted replacement.")
             use_finder_replace = True
         else:
             raise
@@ -1358,16 +1358,16 @@ finally:
                             can_write_app = os.access(current_app_path, os.W_OK)
                             needs_admin = not (can_write_parent and can_write_app)
 
+                            python_executable = "/usr/bin/python3"
+
                             if needs_admin:
-                                python_executable = "/usr/bin/python3"
                                 command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
                                 escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
                                 applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
                                 subprocess.Popen(['osascript', '-e', applescript])
                             else:
-                                py = sys.executable or "python3"
                                 with open(updater_log_path, 'w', encoding='utf-8') as log_file:
-                                    subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
+                                    subprocess.Popen([python_executable, script_path], stdout=log_file, stderr=log_file)
                         else:
                             py = sys.executable or "python3"
                             with open(updater_log_path, 'w', encoding='utf-8') as log_file:

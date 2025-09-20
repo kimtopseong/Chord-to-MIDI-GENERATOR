@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.90"
+CURRENT_VERSION = "1.1.92"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -816,6 +816,7 @@ if __name__ == "__main__":
                         staging_root_str = str(staging_root)
                         new_app_root_str = str(new_app_root)
 
+                        current_pid = os.getpid()
                         script_path = os.path.join(writable_dir, '_updater_win.bat')
                         script_content = textwrap.dedent(f"""\
                             @echo off
@@ -826,9 +827,13 @@ if __name__ == "__main__":
                             set "NEW_APP_DIR={new_app_root_str}"
                             set "LOG_FILE={updater_log_path}"
                             set "FINAL_ARCHIVE={final_path}"
+                            set "PARENT_PID={current_pid}"
 
                             echo [%date% %time%] Starting Windows updater > "%LOG_FILE%"
                             timeout /t 2 /nobreak >nul
+
+                            call :wait_for_parent
+                            if errorlevel 1 goto restore
 
                             if exist "%OLD_APP_DIR%" (
                                 rmdir /s /q "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
@@ -849,6 +854,20 @@ if __name__ == "__main__":
                             if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%" >> "%LOG_FILE%" 2>&1
 
                             del "%~f0"
+                            exit /b 0
+
+:wait_for_parent
+                            echo [%date% %time%] Waiting for process %PARENT_PID% to exit >> "%LOG_FILE%"
+                            for /L %%i in (1,1,60) do (
+                                tasklist /FI "PID eq %PARENT_PID%" | findstr /I "%PARENT_PID%" >nul
+                                if errorlevel 1 goto wait_parent_success
+                                timeout /t 1 /nobreak >nul
+                            )
+                            echo [%date% %time%] Timed out waiting for process %PARENT_PID% to exit. >> "%LOG_FILE%"
+                            exit /b 1
+
+:wait_parent_success
+                            echo [%date% %time%] Process %PARENT_PID% has exited. >> "%LOG_FILE%"
                             exit /b 0
 
 :restore

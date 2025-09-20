@@ -8,6 +8,7 @@ Chord to MIDI Generator (v11.8 - UI Sorting and New 'blk' Chord)
 """
 import sys
 import re
+import atexit
 from dataclasses import dataclass, field
 from typing import List, Optional
 import os
@@ -19,9 +20,88 @@ import tkinter.ttk as ttk
 import customtkinter as ctk
 from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.111"
+CURRENT_VERSION = "1.1.112"
+
+_SINGLE_INSTANCE_LOCK_FILE = None
+
+
+def acquire_single_instance_lock(lock_path: str) -> bool:
+    global _SINGLE_INSTANCE_LOCK_FILE
+    try:
+        lock_file = open(lock_path, "a+b")
+    except OSError:
+        return False
+
+    try:
+        if sys.platform == "win32":
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                lock_file.close()
+                return False
+        else:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                lock_file.close()
+                return False
+    except Exception:
+        lock_file.close()
+        return False
+
+    _SINGLE_INSTANCE_LOCK_FILE = lock_file
+    return True
+
+
+def release_single_instance_lock() -> None:
+    global _SINGLE_INSTANCE_LOCK_FILE
+    if not _SINGLE_INSTANCE_LOCK_FILE:
+        return
+    try:
+        if sys.platform == "win32":
+            try:
+                _SINGLE_INSTANCE_LOCK_FILE.seek(0)
+                msvcrt.locking(_SINGLE_INSTANCE_LOCK_FILE.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+        else:
+            try:
+                fcntl.flock(_SINGLE_INSTANCE_LOCK_FILE, fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
+        try:
+            _SINGLE_INSTANCE_LOCK_FILE.close()
+        except OSError:
+            pass
+        _SINGLE_INSTANCE_LOCK_FILE = None
+
+
+def notify_instance_already_running(message: str) -> None:
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            MB_ICONWARNING = 0x00000030
+            MB_OK = 0x00000000
+            MB_TOPMOST = 0x00040000
+            ctypes.windll.user32.MessageBoxW(None, message, APP_TITLE, MB_ICONWARNING | MB_OK | MB_TOPMOST)
+        else:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showwarning(APP_TITLE, message, parent=root)
+            root.destroy()
+    except Exception:
+        print(message)
+
+
+atexit.register(release_single_instance_lock)
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -752,6 +832,22 @@ if __name__ == "__main__":
     try:
         APP_NAME = 'Chord-to-MIDI-GENERATOR'
         writable_dir = Path.home() / f'.{APP_NAME.lower().replace(" ", "_")}'
+        writable_dir.mkdir(parents=True, exist_ok=True)
+
+        lock_file_path = writable_dir / 'app.lock'
+        if not acquire_single_instance_lock(str(lock_file_path)):
+            notify_instance_already_running(
+                "Chord to MIDI Generator is already running.\n\n앱이 이미 실행 중입니다. 실행 중인 창을 먼저 종료해 주세요."
+            )
+            sys.exit(0)
+
+        update_flag_path = writable_dir / 'update_in_progress'
+        if update_flag_path.exists():
+            notify_instance_already_running(
+                "An update is currently in progress. Please wait for it to finish.\n\n업데이트가 진행 중입니다. 완료될 때까지 잠시 기다려 주세요."
+            )
+            sys.exit(0)
+
         metadata_dir = writable_dir / 'metadata'
         
         # Force update check by clearing cache
@@ -815,6 +911,11 @@ if __name__ == "__main__":
                 
                 tmp_path = None
                 progress_window = None
+                status_file_path = None
+                progress_helper_path = None
+                progress_helper_ps_path = None
+                progress_helper_proc = None
+                update_script_started = False
                 try:
                     progress_window = UpdateProgressWindow()
                     progress_window.update_status("업데이트 다운로드 준비 중...", 0)
@@ -873,6 +974,305 @@ if __name__ == "__main__":
                     updater_log_path = os.path.join(writable_dir, 'updater.log')
                     progress_window.update_status("설치 파일 준비 중...", None)
 
+                    status_file_path = os.path.join(str(writable_dir), 'update_status.txt')
+                    progress_helper_path = os.path.join(str(writable_dir), '_update_progress.py')
+                    progress_helper_ps_path = os.path.join(str(writable_dir), '_update_progress.ps1')
+
+                    for stale_path in (status_file_path, progress_helper_path, progress_helper_ps_path):
+                        if stale_path and os.path.exists(stale_path):
+                            try:
+                                os.remove(stale_path)
+                            except OSError:
+                                pass
+
+                    def _write_status_snapshot(state: str, percent: int, message: str) -> None:
+                        try:
+                            safe_msg = message.replace('\n', ' ').replace('|', '/')
+                            with open(status_file_path, 'w', encoding='utf-8') as status_file:
+                                status_file.write(f"{state}|{percent}|{safe_msg}")
+                        except OSError:
+                            pass
+
+                    _write_status_snapshot('preparing', 5, '설치 파일 준비 중... (Preparing installer...)')
+
+                    try:
+                        with open(update_flag_path, 'w', encoding='utf-8') as flag_file:
+                            flag_file.write(str(int(time.time())))
+                    except OSError:
+                        pass
+
+                    helper_title = "Chord to MIDI Update"
+                    helper_message = "업데이트가 진행 중입니다...\nInstalling update..."
+
+                    if sys.platform == "darwin":
+                        progress_helper_path = os.path.join(str(writable_dir), '_update_progress.py')
+                    elif sys.platform == "win32":
+                        progress_helper_ps_path = os.path.join(str(writable_dir), '_update_progress.ps1')
+
+                    try:
+                        if sys.platform == "darwin":
+                            escaped_status_for_py = _escape_for_py(status_file_path)
+                            escaped_title_for_py = helper_title.replace('"', '\\"')
+                            escaped_message_for_py = _escape_for_py(helper_message)
+                            progress_helper_template = textwrap.dedent("""\
+import os
+import sys
+import time
+import tkinter as tk
+from tkinter import ttk
+
+STATUS_PATH = r"{status_path}"
+WINDOW_TITLE = "{window_title}"
+INITIAL_MESSAGE = "{initial_message}"
+
+
+def read_status():
+    if not os.path.exists(STATUS_PATH):
+        return None
+    try:
+        with open(STATUS_PATH, 'r', encoding='utf-8') as status_file:
+            line = status_file.read().strip()
+    except OSError:
+        return None
+    if not line:
+        return None
+    parts = line.split('|', 2)
+    if len(parts) < 3:
+        return None
+    state, percent_str, message = parts
+    try:
+        percent_val = int(percent_str)
+    except ValueError:
+        percent_val = -1
+    return state, percent_val, message
+
+
+class ProgressUI:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title(WINDOW_TITLE)
+        self.root.geometry('360x150')
+        self.root.resizable(False, False)
+        self.root.attributes('-topmost', True)
+        self.label = tk.Label(self.root, text=INITIAL_MESSAGE, font=('Helvetica', 12), justify='center')
+        self.label.pack(pady=(24, 12))
+        self.progress = ttk.Progressbar(self.root, orient='horizontal', mode='indeterminate', length=260)
+        self.progress.pack(pady=4)
+        self.note = tk.Label(self.root, text='창을 닫지 마세요 (Do not close this window)', font=('Helvetica', 10))
+        self.note.pack(pady=(0, 8))
+        self.progress.start(12)
+        self.root.protocol('WM_DELETE_WINDOW', self._on_close)
+        self._done_scheduled = False
+        self._last_state = None
+        self.root.after(250, self._poll)
+
+    def _on_close(self):
+        if self._last_state in ('done', 'error'):
+            self.root.destroy()
+
+    def _set_determinate(self):
+        if self.progress['mode'] != 'determinate':
+            self.progress.stop()
+            self.progress.config(mode='determinate')
+
+    def _set_indeterminate(self):
+        if self.progress['mode'] != 'indeterminate':
+            self.progress.config(mode='indeterminate')
+            self.progress.start(12)
+
+    def _update_ui(self, state, percent, message):
+        self._last_state = state
+        self.label.config(text=message)
+        if percent is not None and percent >= 0:
+            self._set_determinate()
+            self.progress['value'] = max(0, min(100, percent))
+        else:
+            self._set_indeterminate()
+        if state == 'done':
+            self._set_determinate()
+            self.progress['value'] = 100
+            if not self._done_scheduled:
+                self._done_scheduled = True
+                self.root.after(1200, self.root.destroy)
+        elif state == 'error':
+            self._set_determinate()
+            self.progress['value'] = 0
+
+    def _poll(self):
+        status = read_status()
+        if not status:
+            if not self._done_scheduled:
+                self._done_scheduled = True
+                self.root.after(600, self.root.destroy)
+            return
+        state, percent, message = status
+        self._update_ui(state, percent, message)
+        self.root.after(350, self._poll)
+
+
+def fallback_console():
+    last_state = None
+    while True:
+        status = read_status()
+        if status:
+            state, percent, message = status
+            if state != last_state:
+                sys.stdout.write('[update] %s %s%% %s\n' % (state, percent, message))
+                sys.stdout.flush()
+                last_state = state
+            if state in ('done', 'error'):
+                break
+        time.sleep(0.5)
+
+
+def main():
+    try:
+        ui = ProgressUI()
+    except Exception:
+        fallback_console()
+        return
+    ui.root.mainloop()
+
+
+if __name__ == '__main__':
+    os.environ.setdefault('TK_SILENCE_DEPRECATION', '1')
+    main()
+""")
+
+                            with open(progress_helper_path, 'w', encoding='utf-8') as helper_file:
+                                helper_file.write(progress_helper_template.format(
+                                    status_path=escaped_status_for_py,
+                                    window_title=escaped_title_for_py,
+                                    initial_message=escaped_message_for_py,
+                                ))
+
+                            helper_env = os.environ.copy()
+                            helper_env.setdefault('TK_SILENCE_DEPRECATION', '1')
+                            progress_helper_proc = subprocess.Popen(
+                                ['/usr/bin/python3', progress_helper_path],
+                                env=helper_env,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                            )
+                        elif sys.platform == "win32":
+                            helper_message_ps = helper_message.replace('`', '``')
+                            helper_title_ps = helper_title.replace('`', '``')
+                            status_path_ps = status_file_path.replace('`', '``')
+                            progress_helper_template = textwrap.dedent("""\
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$StatusPath = '{status_path}'
+$WindowTitle = '{window_title}'
+$InitialMessage = @'
+{initial_message}
+'@
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$form = New-Object System.Windows.Forms.Form
+$form.Text = $WindowTitle
+$form.StartPosition = 'CenterScreen'
+$form.Size = New-Object System.Drawing.Size(380,170)
+$form.TopMost = $true
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = $InitialMessage
+$label.AutoSize = $false
+$label.TextAlign = 'MiddleCenter'
+$label.Font = New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontStyle]::Regular)
+$label.Size = New-Object System.Drawing.Size(340,60)
+$label.Location = New-Object System.Drawing.Point(20,15)
+$form.Controls.Add($label)
+
+$progress = New-Object System.Windows.Forms.ProgressBar
+$progress.Style = 'Marquee'
+$progress.Location = New-Object System.Drawing.Point(20,90)
+$progress.Size = New-Object System.Drawing.Size(340,20)
+$form.Controls.Add($progress)
+
+$note = New-Object System.Windows.Forms.Label
+$note.Text = '창을 닫지 마세요 (Do not close this window)'
+$note.AutoSize = $false
+$note.TextAlign = 'MiddleCenter'
+$note.Size = New-Object System.Drawing.Size(340,20)
+$note.Location = New-Object System.Drawing.Point(20,115)
+$form.Controls.Add($note)
+
+$script:doneTimer = $null
+
+function Set-Status {{
+    param($state, $percent, $message)
+
+    $label.Text = $message
+    $parsedPercent = -1
+    if ([int]::TryParse($percent, [ref]$parsedPercent) -and $parsedPercent -ge 0) {{
+        if ($progress.Style -ne 'Continuous') {{
+            $progress.Style = 'Continuous'
+        }}
+        $value = [Math]::Max(0, [Math]::Min(100, $parsedPercent))
+        $progress.Value = $value
+    }}
+    else {{
+        if ($progress.Style -ne 'Marquee') {{
+            $progress.Style = 'Marquee'
+        }}
+    }}
+
+    if ($state -eq 'done') {{
+        $progress.Style = 'Continuous'
+        $progress.Value = 100
+        if (-not $script:doneTimer) {{
+            $script:doneTimer = New-Object System.Windows.Forms.Timer
+            $script:doneTimer.Interval = 1000
+            $script:doneTimer.Add_Tick({{
+                $script:doneTimer.Stop()
+                $form.Close()
+            }})
+            $script:doneTimer.Start()
+        }}
+    }}
+    elseif ($state -eq 'error') {{
+        $progress.Style = 'Continuous'
+        $progress.Value = 0
+    }}
+}}
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 400
+$timer.Add_Tick({{
+    if (-not (Test-Path $StatusPath)) {{
+        $timer.Stop()
+        $form.Close()
+        return
+    }}
+    $line = (Get-Content $StatusPath -ErrorAction SilentlyContinue | Select-Object -Last 1)
+    if (-not $line) {{ return }}
+    $parts = $line.Split('|',3)
+    if ($parts.Length -lt 3) {{ return }}
+    Set-Status $parts[0] $parts[1] $parts[2]
+}})
+
+$timer.Start()
+$form.Add_FormClosing({{
+    $timer.Stop()
+    if ($script:doneTimer) {{ $script:doneTimer.Stop() }}
+}})
+[System.Windows.Forms.Application]::Run($form)
+""")
+
+                            with open(progress_helper_ps_path, 'w', encoding='utf-8-sig') as helper_file:
+                                helper_file.write(progress_helper_template.format(
+                                    status_path=status_path_ps.replace("'", "''"),
+                                    window_title=helper_title_ps.replace("'", "''"),
+                                    initial_message=helper_message_ps.replace("'", "''"),
+                                ))
+
+                            helper_cmd = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', progress_helper_ps_path]
+                            creation_flags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
+                            progress_helper_proc = subprocess.Popen(helper_cmd, creationflags=creation_flags)
+                    except Exception as helper_err:
+                        print(f"Failed to start progress helper: {helper_err}")
+
                     if sys.platform == "win32":
                         app_executable_name = "Chord-to-MIDI-GENERATOR.exe"
                         staging_root = Path(target_dir) / f"staging_{latest_version_str}"
@@ -915,7 +1315,9 @@ if __name__ == "__main__":
                         script_path = os.path.join(writable_dir, '_updater_win.bat')
                         script_content = textwrap.dedent(f"""\
                             @echo off
-                            setlocal enableextensions
+                            setlocal enableextensions enabledelayedexpansion
+                            chcp 65001 >nul
+
                             set "APP_DIR={app_dir_str}"
                             set "OLD_APP_DIR={old_dir_str}"
                             set "STAGING_DIR={staging_root_str}"
@@ -923,10 +1325,14 @@ if __name__ == "__main__":
                             set "LOG_FILE={updater_log_path}"
                             set "FINAL_ARCHIVE={final_path}"
                             set "PARENT_PID={current_pid}"
+                            set "STATUS_FILE={status_file_path}"
+                            set "UPDATE_FLAG={update_flag_path}"
 
+                            call :update_status preparing -1 "설치 준비 중... (Preparing installer...)"
                             echo [%date% %time%] Starting Windows updater > "%LOG_FILE%"
                             timeout /t 2 /nobreak >nul
 
+                            call :update_status waiting 12 "실행 중인 앱 종료 대기 중... (Waiting for app to close...)"
                             call :wait_for_parent
                             if errorlevel 1 goto restore
 
@@ -934,19 +1340,30 @@ if __name__ == "__main__":
                                 rmdir /s /q "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
                             )
 
+                            call :update_status installing 65 "기존 버전을 백업 중... (Backing up current version...)"
                             move "%APP_DIR%" "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
                             if errorlevel 1 goto restore
 
+                            call :update_status installing 75 "새 파일을 복사 중... (Copying new files...)"
                             robocopy "%NEW_APP_DIR%" "%APP_DIR%" /MIR /NFL /NDL /NJH /NJS >> "%LOG_FILE%" 2>&1
                             set "RC=%ERRORLEVEL%"
                             if %RC% GEQ 8 goto restore
 
+                            call :update_status installing 82 "권한 및 설정 정리 중... (Finalising files...)"
+
+                            call :update_status restarting 95 "새 버전을 실행 중... (Launching new version...)"
                             start "" "%APP_DIR%\\{app_executable_name}"
                             timeout /t 5 /nobreak >nul
 
+                            call :update_status cleaning 92 "임시 파일 정리 중... (Cleaning temporary files...)"
                             if exist "%FINAL_ARCHIVE%" del "%FINAL_ARCHIVE%" >> "%LOG_FILE%" 2>&1
                             if exist "%OLD_APP_DIR%" rmdir /s /q "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
                             if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%" >> "%LOG_FILE%" 2>&1
+
+                            call :update_status done 100 "업데이트 완료! (Update complete!)"
+                            if exist "%UPDATE_FLAG%" del "%UPDATE_FLAG%" >nul 2>&1
+                            timeout /t 1 /nobreak >nul
+                            if exist "%STATUS_FILE%" del "%STATUS_FILE%" >nul 2>&1
 
                             del "%~f0"
                             exit /b 0
@@ -959,6 +1376,7 @@ if __name__ == "__main__":
                                 timeout /t 1 /nobreak >nul
                             )
                             echo [%date% %time%] Timed out waiting for process %PARENT_PID% to exit. >> "%LOG_FILE%"
+                            call :update_status error 0 "앱 종료 대기 중 타임아웃 발생 (Timed out waiting for app to close)"
                             exit /b 1
 
 :wait_parent_success
@@ -967,9 +1385,23 @@ if __name__ == "__main__":
 
 :restore
                             echo [%date% %time%] Update failed, attempting restore >> "%LOG_FILE%"
+                            call :update_status error 0 "업데이트 실패: 자세한 내용은 로그를 확인하세요. (Update failed; see log.)"
                             if exist "%APP_DIR%" rmdir /s /q "%APP_DIR%" >> "%LOG_FILE%" 2>&1
                             if exist "%OLD_APP_DIR%" move "%OLD_APP_DIR%" "%APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            if exist "%UPDATE_FLAG%" del "%UPDATE_FLAG%" >nul 2>&1
                             exit /b 1
+
+:update_status
+                            setlocal enableextensions enabledelayedexpansion
+                            set "STATE=%~1"
+                            set "PERCENT=%~2"
+                            set "MESSAGE=%~3"
+                            set "STATE=!STATE!"
+                            set "PERCENT=!PERCENT!"
+                            set "MESSAGE=!MESSAGE!"
+                            powershell -NoProfile -Command "$line = $env:STATE + '|' + $env:PERCENT + '|' + $env:MESSAGE; Set-Content -Path $env:STATUS_FILE -Value $line -Encoding UTF8" >nul 2>&1
+                            endlocal
+                            exit /b 0
                         """)
 
                         with open(script_path, 'w', encoding='utf-8') as f:
@@ -983,6 +1415,7 @@ if __name__ == "__main__":
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
                         )
+                        update_script_started = True
 
                     else:
                         current_app_path = str(app_install_dir)
@@ -1041,6 +1474,8 @@ if __name__ == "__main__":
                         escaped_restart_cmd = _escape_for_py(restart_cmd)
                         escaped_app_name = _escape_for_py(app_executable_name)
                         escaped_staging_dir = _escape_for_py(staging_root_str)
+                        escaped_status_path = _escape_for_py(status_file_path)
+                        escaped_update_flag = _escape_for_py(str(update_flag_path))
                         parent_pid = os.getpid()
 
                         updater_script_template = textwrap.dedent("""\
@@ -1061,6 +1496,10 @@ restart_cmd_str = r"{restart_cmd}"
 app_executable_name = r"{app_executable_name}"
 staging_dir = r"{staging_dir}"
 parent_pid = {parent_pid}
+status_path = r"{status_path}"
+update_flag_path = r"{update_flag_path}"
+
+encountered_error = False
 
 
 def ensure_clean_dir(path):
@@ -1191,6 +1630,24 @@ def replace_app_via_finder(source_app: str, target_app: str) -> None:
         raise RuntimeError("Finder replacement failed: " + details)
 
 
+def write_status(state: str, message: str, percent=None) -> None:
+    if not status_path:
+        return
+    try:
+        percent_value = -1 if percent is None else int(percent)
+    except (TypeError, ValueError):
+        percent_value = -1
+
+    safe_message = str(message).replace('\n', ' ').replace('|', '/')
+    tmp_path = status_path + '.tmp'
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as status_file:
+            status_file.write(f"{state}|{percent_value}|{safe_message}")
+        os.replace(tmp_path, status_path)
+    except OSError:
+        pass
+
+
 def is_process_running(pid: int) -> bool:
     try:
         if pid <= 0:
@@ -1211,6 +1668,7 @@ def wait_for_parent_exit(pid: int, timeout: float = 90.0) -> bool:
 
 
 try:
+    write_status('waiting', '앱 종료 대기 중... (Waiting for the app to close...)', 10)
     # Small initial delay and then ensure parent fully exited
     time.sleep(1.5)
     if parent_pid:
@@ -1218,11 +1676,14 @@ try:
         if not wait_for_parent_exit(parent_pid, timeout=90.0):
             print(f"Parent process {parent_pid} still running after timeout; proceeding anyway.")
 
+    write_status('extracting', '압축 파일 해제 준비 중... (Preparing extraction...)', 25)
+
     ensure_clean_dir(staging_dir)
     primary_extract_dir = os.path.join(staging_dir, 'primary')
     ensure_clean_dir(primary_extract_dir)
 
     print(f'Extracting primary archive {{archive_path}} into {{primary_extract_dir}}...')
+    write_status('extracting', '압축 파일 해제 중... (Extracting package...)', 40)
     if archive_path.endswith('.tar.gz'):
         tar_cmd = f"tar -xzf '{{archive_path}}' -C '{{primary_extract_dir}}'"
         subprocess.run(tar_cmd, shell=True, check=True)
@@ -1257,6 +1718,8 @@ try:
     else:
         shutil.unpack_archive(platform_archive_path, platform_extract_dir)
 
+    write_status('installing', '새 파일 배치 중... (Deploying new version...)', 60)
+
     if sys.platform == "darwin":
         candidate_apps = glob.glob(os.path.join(platform_extract_dir, '*.app'))
         if not candidate_apps:
@@ -1279,21 +1742,25 @@ try:
     use_finder_replace = False
 
     try:
+        write_status('installing', '기존 버전을 백업 중... (Backing up current version...)', 65)
         print(f'Moving {{current_app_path}} to {{old_app_path}}')
         move_to_backup(current_app_path, old_app_path)
 
+        write_status('installing', '새 파일을 배치 중... (Placing new build...)', 75)
         print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
         remove_path(current_app_path)
         shutil.move(new_app_root, current_app_path)
     except Exception as replace_err:
         if sys.platform == "darwin" and is_permission_error(replace_err):
             print("Permission issue encountered (" + str(replace_err) + "); attempting Finder-assisted replacement.")
+            write_status('installing', 'Finder를 통해 교체 중... (Replacing via Finder...)', 75)
             use_finder_replace = True
         else:
             raise
 
     if use_finder_replace:
         replace_app_via_finder(new_app_root, current_app_path)
+        write_status('installing', '새 파일을 배치 중... (Placing new build...)', 78)
         # Attempt to clean up any backup created during fallback; ignore failures.
         if os.path.exists(old_app_path):
             try:
@@ -1302,24 +1769,32 @@ try:
                 pass
 
     if sys.platform == "darwin":
+        write_status('installing', '실행 권한을 정리 중... (Adjusting permissions...)', 82)
         subprocess.run(f"xattr -dr com.apple.quarantine '{{current_app_path}}'", shell=True, check=False)
         executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
         if os.path.exists(executable_path):
             chmod_cmd = f"chmod +x '{{executable_path}}'"
             subprocess.run(chmod_cmd, shell=True, check=False)
 
+    write_status('restarting', '새 버전을 실행 중... (Launching new version...)', 95)
     print('Restarting application...')
     subprocess.Popen(restart_cmd_str, shell=True)
 
     print("Cleaning up staging area...")
     shutil.rmtree(staging_dir, ignore_errors=True)
 
+    write_status('cleaning', '임시 파일 정리 중... (Cleaning up temporary files...)', 92)
+
     time.sleep(5)
     if os.path.exists(old_app_path):
         print(f'Cleaning up {{old_app_path}}')
         remove_path(old_app_path)
 
+    write_status('done', '업데이트 완료! (Update complete!)', 100)
+
 except Exception as e:
+    encountered_error = True
+    write_status('error', f'업데이트 실패: {{e}}', 0)
     print(f'Update script failed: {{e}}')
     if os.path.exists(old_app_path) and not os.path.exists(current_app_path):
         try:
@@ -1329,6 +1804,24 @@ except Exception as e:
             print(f"Failed to restore old version: {{e_restore}}")
 
 finally:
+    if not encountered_error:
+        try:
+            time.sleep(1.0)
+        except Exception:
+            pass
+
+    if status_path and os.path.exists(status_path) and not encountered_error:
+        try:
+            os.remove(status_path)
+        except OSError:
+            pass
+
+    if update_flag_path and os.path.exists(update_flag_path):
+        try:
+            os.remove(update_flag_path)
+        except OSError:
+            pass
+
     if os.path.exists(archive_path):
         os.remove(archive_path)
     if os.path.exists(staging_dir):
@@ -1346,6 +1839,8 @@ finally:
                             app_executable_name=escaped_app_name,
                             staging_dir=escaped_staging_dir,
                             parent_pid=parent_pid,
+                            status_path=escaped_status_path,
+                            update_flag_path=escaped_update_flag,
                         )
 
                         script_path = os.path.join(writable_dir, '_updater.py')
@@ -1368,10 +1863,12 @@ finally:
                             else:
                                 with open(updater_log_path, 'w', encoding='utf-8') as log_file:
                                     subprocess.Popen([python_executable, script_path], stdout=log_file, stderr=log_file)
+                            update_script_started = True
                         else:
                             py = sys.executable or "python3"
                             with open(updater_log_path, 'w', encoding='utf-8') as log_file:
                                 subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
+                            update_script_started = True
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)
@@ -1400,6 +1897,22 @@ finally:
                 finally:
                     if progress_window:
                         progress_window.close()
+                    if progress_helper_proc and not update_script_started:
+                        try:
+                            progress_helper_proc.terminate()
+                        except Exception:
+                            pass
+                    if not update_script_started:
+                        if status_file_path and os.path.exists(status_file_path):
+                            try:
+                                os.remove(status_file_path)
+                            except OSError:
+                                pass
+                        if update_flag_path.exists():
+                            try:
+                                update_flag_path.unlink()
+                            except OSError:
+                                pass
 
     except Exception as e:
         # ---------------- TUF 업데이트 실패 시 '플랜 B' 실행 ----------------

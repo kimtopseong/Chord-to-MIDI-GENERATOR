@@ -21,7 +21,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.103"
+CURRENT_VERSION = "1.1.105"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -35,6 +35,84 @@ class ScrollableFrame(ctk.CTkFrame):
         self.inner.bind("<Configure>", self._on_inner_configure); self.canvas.bind("<Configure>", self._on_canvas_configure)
     def _on_inner_configure(self, event): self.canvas.configure(scrollregion=self.canvas.bbox("all"))
     def _on_canvas_configure(self, event): self.canvas.itemconfig(self.inner_id, width=event.width)
+
+
+class UpdateProgressWindow:
+    def __init__(self, title="업데이트 진행 중"):
+        self._created_root = False
+        parent = tk._default_root
+        if parent is None:
+            self.window = tk.Tk()
+            self._created_root = True
+        else:
+            self.window = tk.Toplevel(parent)
+            self.window.transient(parent)
+
+        self.window.title(title)
+        self.window.geometry("360x170")
+        self.window.resizable(False, False)
+        self.window.attributes("-topmost", True)
+        self.window.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self.status_var = tk.StringVar(value="준비 중...")
+        status_label = tk.Label(self.window, textvariable=self.status_var, font=("Helvetica", 12))
+        status_label.pack(pady=(20, 10))
+
+        self.progress = ttk.Progressbar(self.window, orient="horizontal", mode="determinate", length=280)
+        self.progress.pack(pady=5)
+        self.progress['maximum'] = 100
+        self._progress_mode = "determinate"
+
+        self.percent_var = tk.StringVar(value="0%")
+        percent_label = tk.Label(self.window, textvariable=self.percent_var, font=("Helvetica", 10))
+        percent_label.pack(pady=(0, 10))
+
+        info_label = tk.Label(self.window, text="창을 닫지 마세요", font=("Helvetica", 9))
+        info_label.pack()
+
+        self.window.update_idletasks()
+
+    def _ensure_mode(self, mode: str):
+        if self._progress_mode == mode:
+            return
+        if self._progress_mode == "indeterminate":
+            self.progress.stop()
+        self.progress.config(mode=mode)
+        if mode == "indeterminate":
+            self.progress.start(12)
+        self._progress_mode = mode
+
+    def update_status(self, text: str, percent: Optional[float] = None):
+        self.status_var.set(text)
+        if percent is None:
+            self._ensure_mode("indeterminate")
+            self.percent_var.set("")
+        else:
+            self._ensure_mode("determinate")
+            clamped = max(0.0, min(100.0, percent))
+            self.progress['value'] = clamped
+            self.percent_var.set(f"{clamped:.0f}%")
+        self.window.update_idletasks()
+
+    def close(self):
+        if self._progress_mode == "indeterminate":
+            self.progress.stop()
+        if self.window:
+            self.window.destroy()
+        if self._created_root:
+            tk._default_root = None
+
+
+def format_bytes(num: int) -> str:
+    value = float(num)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{num} B"
 
 class App(ctk.CTk):
     BASE_OCTAVE = 48
@@ -199,73 +277,6 @@ class App(ctk.CTk):
         return App.ParsedChord(root=root, quality=quality, tensions=tensions, paren_contents=paren_contents,
                                bass_note=bass_note, omissions=omissions, is_roman=is_roman_flag,
                                roman_symbol=head, seventh=seventh, alterations=alterations)
-
-
-class UpdateProgressWindow:
-    def __init__(self, title="업데이트 진행 중", splash_root=None, **_ignored):
-        self._created_root = False
-
-        parent = splash_root if splash_root is not None else tk._default_root
-        if parent is None:
-            self.window = tk.Tk()
-            self._created_root = True
-        else:
-            self.window = tk.Toplevel(parent)
-            self.window.transient(parent)
-
-        self.window.title(title)
-        self.window.geometry("360x170")
-        self.window.resizable(False, False)
-        self.window.attributes("-topmost", True)
-        self.window.protocol("WM_DELETE_WINDOW", lambda: None)
-
-        self.status_var = tk.StringVar(value="준비 중...")
-        status_label = tk.Label(self.window, textvariable=self.status_var, font=("Helvetica", 12))
-        status_label.pack(pady=(20, 10))
-
-        self.progress = ttk.Progressbar(self.window, orient="horizontal", mode="determinate", length=280)
-        self.progress.pack(pady=5)
-        self.progress['maximum'] = 100
-        self._progress_mode = "determinate"
-
-        self.percent_var = tk.StringVar(value="0%")
-        percent_label = tk.Label(self.window, textvariable=self.percent_var, font=("Helvetica", 10))
-        percent_label.pack(pady=(0, 10))
-
-        info_label = tk.Label(self.window, text="창을 닫지 마세요", font=("Helvetica", 9))
-        info_label.pack()
-
-        self.window.update_idletasks()
-
-    def _ensure_mode(self, mode: str):
-        if self._progress_mode == mode:
-            return
-        if self._progress_mode == "indeterminate":
-            self.progress.stop()
-        self.progress.config(mode=mode)
-        if mode == "indeterminate":
-            self.progress.start(12)
-        self._progress_mode = mode
-
-    def update_status(self, text: str, percent: Optional[float] = None):
-        self.status_var.set(text)
-        if percent is None:
-            self._ensure_mode("indeterminate")
-            self.percent_var.set("")
-        else:
-            self._ensure_mode("determinate")
-            clamped = max(0.0, min(100.0, percent))
-            self.progress['value'] = clamped
-            self.percent_var.set(f"{clamped:.0f}%")
-        self.window.update_idletasks()
-
-    def close(self):
-        if self._progress_mode == "indeterminate":
-            self.progress.stop()
-        if self.window:
-            self.window.destroy()
-        if self._created_root:
-            tk._default_root = None
 
     @staticmethod
     def build_string_from_parsed(p: 'App.ParsedChord', is_roman: bool, key: str) -> str:
@@ -807,22 +818,21 @@ if __name__ == "__main__":
                 try:
                     progress_window = UpdateProgressWindow()
                     progress_window.update_status("업데이트 다운로드 준비 중...", 0)
-                    # 1. 정확한 다운로드 URL 생성
+
                     tag_name = f"v{latest_version_str}"
                     file_name = os.path.basename(latest_target.path)
                     base_url = "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/download"
                     download_url = f"{base_url}/{tag_name}/{file_name}"
                     print(f"Downloading update from: {download_url}")
 
-                    # 2. requests를 사용하여 파일 다운로드
                     resp = requests.get(download_url, stream=True, timeout=(5, 120))
                     resp.raise_for_status()
 
-                    # 3. 임시 파일에 저장하며 해시 및 길이 동시 검증
                     tmp_path = os.path.join(str(target_dir), f".{file_name}.part")
                     hasher = hashlib.sha256()
                     total_bytes = 0
                     expected_len = latest_target.length or 0
+
                     if expected_len:
                         progress_window.update_status(
                             f"다운로드 중... (0 / {format_bytes(expected_len)})", 0
@@ -832,18 +842,19 @@ if __name__ == "__main__":
 
                     with open(tmp_path, "wb") as f:
                         for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                f.write(chunk)
-                                hasher.update(chunk)
-                                total_bytes += len(chunk)
-                                if expected_len:
-                                    percent = (total_bytes / expected_len) * 100
-                                    progress_window.update_status(
-                                        f"다운로드 중... ({format_bytes(total_bytes)} / {format_bytes(expected_len)})",
-                                        percent,
-                                    )
+                            if not chunk:
+                                continue
+                            f.write(chunk)
+                            hasher.update(chunk)
+                            total_bytes += len(chunk)
 
-                    # 4. 다운로드 완료 후 최종 검증 (길이 및 해시)
+                            if expected_len:
+                                percent = (total_bytes / expected_len) * 100
+                                progress_window.update_status(
+                                    f"다운로드 중... ({format_bytes(total_bytes)} / {format_bytes(expected_len)})",
+                                    percent,
+                                )
+
                     if expected_len and total_bytes != expected_len:
                         raise ValueError(f"Length mismatch: expected {expected_len}, got {total_bytes}")
 
@@ -855,7 +866,6 @@ if __name__ == "__main__":
                     print("File hash & length verified successfully.")
                     progress_window.update_status("다운로드 검증 중...", 100)
 
-                    # 5. 검증 완료 후 임시 파일을 최종 파일로 교체
                     final_path = os.path.join(str(target_dir), file_name)
                     os.replace(tmp_path, final_path)
                     tmp_path = None
@@ -995,20 +1005,42 @@ if __name__ == "__main__":
                             executable_path = os.path.join(app_install_dir.parent, app_executable_name)
                             restart_cmd = f"'{executable_path}'"
 
+                        extract_to_dir = app_install_dir.parent
+                        if sys.platform == "darwin":
+                            extract_str = str(extract_to_dir)
+                            if "AppTranslocation" in extract_str or not os.access(extract_str, os.W_OK):
+                                if progress_window:
+                                    progress_window.close()
+                                    progress_window = None
+                                title = "자동 업데이트 불가 (Update Blocked)"
+                                message = (
+                                    "현재 애플리케이션이 읽기 전용 위치에서 실행되고 있어 자동 업데이트를 수행할 수 없습니다.\n"
+                                    "앱을 '응용 프로그램' 폴더 등 쓰기 가능한 위치로 이동한 뒤 다시 실행해 주세요."
+                                )
+                                messagebox.showerror(title, message)
+                                raise RuntimeError("macOS auto-update blocked due to read-only App Translocation location")
+
                         staging_root = Path(target_dir) / f"staging_{latest_version_str}_{sys.platform}"
                         if staging_root.exists():
                             shutil.rmtree(staging_root)
                         staging_root.mkdir(parents=True, exist_ok=True)
                         staging_root_str = str(staging_root)
-                        print(f"macOS updater staging directory: {staging_root_str}")
-                        progress_window.update_status("설치 스크립트를 준비 중...", None)
 
-                        escaped_current_app = repr(current_app_path)
-                        escaped_archive_path = repr(final_path)
-                        escaped_restart_cmd = repr(restart_cmd)
-                        escaped_app_name = repr(app_executable_name)
-                        escaped_staging_dir = repr(staging_root_str)
-                        escaped_latest_version = repr(latest_version_str)
+                        if progress_window:
+                            progress_window.update_status("설치 스크립트를 준비 중...", None)
+
+                        def _escape_for_py(value: str) -> str:
+                            return (value
+                                    .replace("\\", "\\\\")
+                                    .replace('"', '\\"')
+                                    .replace('{', '{{')
+                                    .replace('}', '}}'))
+
+                        escaped_current_app = _escape_for_py(current_app_path)
+                        escaped_archive_path = _escape_for_py(final_path)
+                        escaped_restart_cmd = _escape_for_py(restart_cmd)
+                        escaped_app_name = _escape_for_py(app_executable_name)
+                        escaped_staging_dir = _escape_for_py(staging_root_str)
 
                         updater_script_template = textwrap.dedent("""\
 import os
@@ -1018,89 +1050,19 @@ import shutil
 import subprocess
 import platform
 import glob
-import json
-import stat
 
-current_app_path = {current_app_path}
+current_app_path = r"{current_app_path}"
 old_app_path = current_app_path + '.old'
-archive_path = {archive_path}
-restart_cmd_str = {restart_cmd}
-app_executable_name = {app_executable_name}
-staging_dir = {staging_dir}
-latest_version = {latest_version}
-
-
-def loosen_path(path):
-    if not os.path.exists(path):
-        return
-    stack = []
-    if os.path.isdir(path) and not os.path.islink(path):
-        for root, dirs, files in os.walk(path):
-            for name in files:
-                stack.append(os.path.join(root, name))
-            for name in dirs:
-                stack.append(os.path.join(root, name))
-    stack.append(path)
-    for item in stack:
-        try:
-            os.chmod(item, stat.S_IRWXU)
-        except OSError:
-            pass
-        if hasattr(os, "chflags"):
-            try:
-                os.chflags(item, 0)
-            except OSError:
-                pass
-
-
-def remove_path(path):
-    if not os.path.exists(path):
-        return
-
-    def _onerror(func, p, exc_info):
-        loosen_path(p)
-        func(p)
-
-    loosen_path(path)
-    if os.path.isdir(path) and not os.path.islink(path):
-        shutil.rmtree(path, onerror=_onerror)
-    else:
-        try:
-            os.remove(path)
-        except IsADirectoryError:
-            shutil.rmtree(path, onerror=_onerror)
+archive_path = r"{archive_path}"
+restart_cmd_str = r"{restart_cmd}"
+app_executable_name = r"{app_executable_name}"
+staging_dir = r"{staging_dir}"
 
 
 def ensure_clean_dir(path):
-    remove_path(path)
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path, exist_ok=True)
-
-
-def move_to_backup(src, backup):
-    if not os.path.exists(src):
-        return
-    remove_path(backup)
-    loosen_path(src)
-    try:
-        os.replace(src, backup)
-    except OSError as err:
-        print(f"Rename failed ({{err}}), attempting copy fallback.")
-        remove_path(backup)
-        shutil.copytree(src, backup, copy_function=shutil.copy2)
-        remove_path(src)
-
-
-def format_bytes(num: int) -> str:
-    step = 1024.0
-    units = ["B", "KB", "MB", "GB", "TB"]
-    value = float(num)
-    for unit in units:
-        if value < step or unit == units[-1]:
-            if unit == "B":
-                return f"{int(value)} {unit}"
-            return f"{value:.1f} {unit}"
-        value /= step
-    return f"{num} B"
 
 
 try:
@@ -1140,7 +1102,8 @@ try:
 
     print("Unpacking platform archive...")
     if sys.platform == "darwin":
-        subprocess.run(["ditto", "-xk", platform_archive_path, platform_extract_dir], check=True)
+        ditto_cmd = f"ditto -xk '{platform_archive_path}' '{platform_extract_dir}'"
+        subprocess.run(ditto_cmd, shell=True, check=True)
     else:
         shutil.unpack_archive(platform_archive_path, platform_extract_dir)
 
@@ -1164,54 +1127,47 @@ try:
                 raise FileNotFoundError("Could not locate application directory in extracted payload.")
 
     print(f'Moving {{current_app_path}} to {{old_app_path}}')
-    move_to_backup(current_app_path, old_app_path)
+    if os.path.exists(old_app_path):
+        shutil.rmtree(old_app_path, ignore_errors=True)
+    if os.path.exists(current_app_path):
+        shutil.move(current_app_path, old_app_path)
 
     print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
-    remove_path(current_app_path)
+    if os.path.exists(current_app_path):
+        shutil.rmtree(current_app_path, ignore_errors=True)
     shutil.move(new_app_root, current_app_path)
 
     if sys.platform == "darwin":
-        subprocess.run(["xattr", "-dr", "com.apple.quarantine", current_app_path], check=False)
+        subprocess.run(f"xattr -dr com.apple.quarantine '{{current_app_path}}'", shell=True, check=False)
         executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
         if os.path.exists(executable_path):
-            subprocess.run(["chmod", "+x", executable_path], check=False)
+            chmod_cmd = f"chmod +x '{{executable_path}}'"
+            subprocess.run(chmod_cmd, shell=True, check=False)
 
     print('Restarting application...')
     subprocess.Popen(restart_cmd_str, shell=True)
 
     print("Cleaning up staging area...")
-    remove_path(staging_dir)
+    shutil.rmtree(staging_dir, ignore_errors=True)
 
     time.sleep(5)
     if os.path.exists(old_app_path):
         print(f'Cleaning up {{old_app_path}}')
-        remove_path(old_app_path)
+        shutil.rmtree(old_app_path, ignore_errors=True)
 
 except Exception as e:
     print(f'Update script failed: {{e}}')
     if os.path.exists(old_app_path) and not os.path.exists(current_app_path):
         try:
-            remove_path(current_app_path)
-            os.replace(old_app_path, current_app_path)
+            shutil.move(old_app_path, current_app_path)
         except Exception as e_restore:
             print(f"Failed to restore old version: {{e_restore}}")
-    try:
-        dialog_message = f"자동 업데이트에 실패했습니다. (오류: {{e}})\\n수동으로 v{{latest_version}} 버전을 설치해 주세요."
-        apple_script = 'display dialog ' + json.dumps(dialog_message) + ' buttons {{"OK"}} default button "OK"'
-        subprocess.run(["osascript", "-e", apple_script], check=False)
-    except Exception as dialog_err:
-        print(f"Failed to show failure dialog: {{dialog_err}}")
-    try:
-        subprocess.run(["open", "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"], check=False)
-    except Exception as open_err:
-        print(f"Failed to open releases page: {{open_err}}")
-    sys.exit(1)
 
 finally:
     if os.path.exists(archive_path):
         os.remove(archive_path)
     if os.path.exists(staging_dir):
-        remove_path(staging_dir)
+        shutil.rmtree(staging_dir, ignore_errors=True)
     try:
         os.remove(__file__)
     except OSError:
@@ -1224,7 +1180,6 @@ finally:
                             restart_cmd=escaped_restart_cmd,
                             app_executable_name=escaped_app_name,
                             staging_dir=escaped_staging_dir,
-                            latest_version=escaped_latest_version,
                         )
 
                         script_path = os.path.join(writable_dir, '_updater.py')
@@ -1232,25 +1187,16 @@ finally:
                             f.write(updater_script_content)
 
                         if sys.platform == "darwin":
-                            progress_window.update_status("설치 스크립트를 실행합니다...", None)
                             python_executable = "/usr/bin/python3"
                             command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
                             escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
                             applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
                             subprocess.Popen(['osascript', '-e', applescript])
                         else:
-                            progress_window.update_status("설치 스크립트를 실행합니다...", None)
                             py = sys.executable or "python3"
                             with open(updater_log_path, 'w', encoding='utf-8') as log_file:
                                 subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
                     
-                    if progress_window:
-                        progress_window.update_status(
-                            "설치 스크립트를 실행합니다...\n애플리케이션이 곧 다시 시작됩니다.", None
-                        )
-                        progress_window.close()
-                        progress_window = None
-                    time.sleep(0.3)
                     # 메인 애플리케이션 종료
                     sys.exit(0)
 
@@ -1264,7 +1210,7 @@ finally:
                         progress_window.update_status("업데이트 실패", None)
                         progress_window.close()
                         progress_window = None
-                    
+
                     title = "업데이트 오류 (Update Error)"
                     message = (
                         f"업데이트 다운로드 또는 확인에 실패했습니다.\n"

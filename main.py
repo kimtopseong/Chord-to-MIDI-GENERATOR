@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.84"
+CURRENT_VERSION = "1.1.85"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -931,7 +931,7 @@ finally:
                                 ['/usr/bin/python3', script_path],
                                 stdout=log_file,
                                 stderr=log_file
-                            )
+                            ) # <-- 이 닫는 괄호 ')'가 추가되었습니다.
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)

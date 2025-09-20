@@ -21,7 +21,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.105"
+CURRENT_VERSION = "1.1.108"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -1050,6 +1050,7 @@ import shutil
 import subprocess
 import platform
 import glob
+import stat
 
 current_app_path = r"{current_app_path}"
 old_app_path = current_app_path + '.old'
@@ -1063,6 +1064,61 @@ def ensure_clean_dir(path):
     if os.path.exists(path):
         shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path, exist_ok=True)
+
+
+def loosen_path(path):
+    if not os.path.exists(path):
+        return
+    stack = []
+    if os.path.isdir(path) and not os.path.islink(path):
+        for root, dirs, files in os.walk(path):
+            for name in files:
+                stack.append(os.path.join(root, name))
+            for name in dirs:
+                stack.append(os.path.join(root, name))
+    stack.append(path)
+    for item in stack:
+        try:
+            os.chmod(item, stat.S_IRWXU)
+        except OSError:
+            pass
+        if hasattr(os, "chflags"):
+            try:
+                os.chflags(item, 0)
+            except OSError:
+                pass
+
+
+def remove_path(path):
+    if not os.path.exists(path):
+        return
+
+    def _onerror(func, p, exc_info):
+        loosen_path(p)
+        func(p)
+
+    loosen_path(path)
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path, onerror=_onerror)
+    else:
+        try:
+            os.remove(path)
+        except IsADirectoryError:
+            shutil.rmtree(path, onerror=_onerror)
+
+
+def move_to_backup(src, backup):
+    if not os.path.exists(src):
+        return
+    remove_path(backup)
+    loosen_path(src)
+    try:
+        os.replace(src, backup)
+    except OSError as err:
+        print(f"Rename failed ({{err}}), attempting copy fallback.")
+        remove_path(backup)
+        shutil.copytree(src, backup, copy_function=shutil.copy2)
+        remove_path(src)
 
 
 try:
@@ -1102,7 +1158,7 @@ try:
 
     print("Unpacking platform archive...")
     if sys.platform == "darwin":
-        ditto_cmd = f"ditto -xk '{platform_archive_path}' '{platform_extract_dir}'"
+        ditto_cmd = f"ditto -xk '{{platform_archive_path}}' '{{platform_extract_dir}}'"
         subprocess.run(ditto_cmd, shell=True, check=True)
     else:
         shutil.unpack_archive(platform_archive_path, platform_extract_dir)
@@ -1127,14 +1183,10 @@ try:
                 raise FileNotFoundError("Could not locate application directory in extracted payload.")
 
     print(f'Moving {{current_app_path}} to {{old_app_path}}')
-    if os.path.exists(old_app_path):
-        shutil.rmtree(old_app_path, ignore_errors=True)
-    if os.path.exists(current_app_path):
-        shutil.move(current_app_path, old_app_path)
+    move_to_backup(current_app_path, old_app_path)
 
     print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
-    if os.path.exists(current_app_path):
-        shutil.rmtree(current_app_path, ignore_errors=True)
+    remove_path(current_app_path)
     shutil.move(new_app_root, current_app_path)
 
     if sys.platform == "darwin":
@@ -1153,13 +1205,14 @@ try:
     time.sleep(5)
     if os.path.exists(old_app_path):
         print(f'Cleaning up {{old_app_path}}')
-        shutil.rmtree(old_app_path, ignore_errors=True)
+        remove_path(old_app_path)
 
 except Exception as e:
     print(f'Update script failed: {{e}}')
     if os.path.exists(old_app_path) and not os.path.exists(current_app_path):
         try:
-            shutil.move(old_app_path, current_app_path)
+            remove_path(current_app_path)
+            os.replace(old_app_path, current_app_path)
         except Exception as e_restore:
             print(f"Failed to restore old version: {{e_restore}}")
 
@@ -1167,7 +1220,7 @@ finally:
     if os.path.exists(archive_path):
         os.remove(archive_path)
     if os.path.exists(staging_dir):
-        shutil.rmtree(staging_dir, ignore_errors=True)
+        remove_path(staging_dir)
     try:
         os.remove(__file__)
     except OSError:

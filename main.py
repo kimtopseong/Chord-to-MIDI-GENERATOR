@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.89"
+CURRENT_VERSION = "1.1.90"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -660,6 +660,8 @@ if __name__ == "__main__":
     import subprocess
     import time
     import platform
+    import tarfile
+    import textwrap
     import webbrowser  # webbrowser 라이브러리 추가
     from packaging.version import parse as parse_version
     from tuf.ngclient import Updater
@@ -774,33 +776,112 @@ if __name__ == "__main__":
                     os.replace(tmp_path, final_path)
                     tmp_path = None
 
-                    # === (추가) OS별로 다른 경로와 명령어 설정 ===
-                    if sys.platform == "darwin": # macOS
-                        app_executable_name = "Chord-to-MIDI-GENERATOR"
-                        restart_cmd = f"open '{os.path.join(app_install_dir.parent, app_executable_name + '.app')}'"
-                    elif sys.platform == "win32": # Windows
+                    updater_log_path = os.path.join(writable_dir, 'updater.log')
+
+                    if sys.platform == "win32":
                         app_executable_name = "Chord-to-MIDI-GENERATOR.exe"
-                        # 윈도우에서는 .zip을 풀면 'Chord-to-MIDI-GENERATOR' 폴더가 생김
-                        install_path = os.path.join(app_install_dir.parent, 'Chord-to-MIDI-GENERATOR')
-                        executable_path = os.path.join(install_path, app_executable_name)
-                        restart_cmd = f'start "" "{executable_path}"'
-                    else: # Linux 등 기타
-                        app_executable_name = "Chord-to-MIDI-GENERATOR"
-                        executable_path = os.path.join(app_install_dir.parent, app_executable_name)
-                        restart_cmd = f'"{executable_path}"'
-                    # ===============================================
+                        staging_root = Path(target_dir) / f"staging_{latest_version_str}"
+                        if staging_root.exists():
+                            shutil.rmtree(staging_root)
+                        staging_root.mkdir(parents=True, exist_ok=True)
 
-                    # 6. ---- 설치 스크립트 생성 및 실행 ----
-                    # 압축을 해제할 상위 폴더 (예: /Users/tsk/Downloads)
-                    extract_to_dir = app_install_dir.parent
-                    
-                    # 현재 실행 중인 .app 번들의 경로 (예: /Users/tsk/Downloads/Chord-to-MIDI-GENERATOR.app)
-                    current_app_path = str(app_install_dir)
-                    
-                    # 재시작할 애플리케이션 경로
-                    restart_cmd = f"open '{current_app_path}'"
+                        with tarfile.open(final_path, "r:gz") as tar:
+                            tar.extractall(path=staging_root)
 
-                    updater_script_content = f"""
+                        arch_suffix = "win-x86"
+                        platform_archives = list(staging_root.rglob(f"*-{arch_suffix}.zip"))
+                        if not platform_archives:
+                            raise FileNotFoundError(
+                                f"Could not find Windows archive matching '*-{arch_suffix}.zip' in {staging_root}"
+                            )
+                        platform_archive_path = platform_archives[0]
+
+                        platform_extract_dir = staging_root / "new_build"
+                        if platform_extract_dir.exists():
+                            shutil.rmtree(platform_extract_dir)
+                        shutil.unpack_archive(str(platform_archive_path), str(platform_extract_dir))
+
+                        new_app_root = platform_extract_dir / app_install_dir.name
+                        if not new_app_root.exists():
+                            candidate_dirs = [p for p in platform_extract_dir.iterdir() if p.is_dir()]
+                            if len(candidate_dirs) == 1:
+                                new_app_root = candidate_dirs[0]
+                            else:
+                                raise FileNotFoundError(
+                                    f"Could not locate extracted app directory inside {platform_extract_dir}"
+                                )
+
+                        app_dir_str = str(app_install_dir)
+                        old_dir_str = app_dir_str + ".old"
+                        staging_root_str = str(staging_root)
+                        new_app_root_str = str(new_app_root)
+
+                        script_path = os.path.join(writable_dir, '_updater_win.bat')
+                        script_content = textwrap.dedent(f"""\
+                            @echo off
+                            setlocal enableextensions
+                            set "APP_DIR={app_dir_str}"
+                            set "OLD_APP_DIR={old_dir_str}"
+                            set "STAGING_DIR={staging_root_str}"
+                            set "NEW_APP_DIR={new_app_root_str}"
+                            set "LOG_FILE={updater_log_path}"
+                            set "FINAL_ARCHIVE={final_path}"
+
+                            echo [%date% %time%] Starting Windows updater > "%LOG_FILE%"
+                            timeout /t 2 /nobreak >nul
+
+                            if exist "%OLD_APP_DIR%" (
+                                rmdir /s /q "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            )
+
+                            move "%APP_DIR%" "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            if errorlevel 1 goto restore
+
+                            robocopy "%NEW_APP_DIR%" "%APP_DIR%" /MIR /NFL /NDL /NJH /NJS >> "%LOG_FILE%" 2>&1
+                            set "RC=%ERRORLEVEL%"
+                            if %RC% GEQ 8 goto restore
+
+                            start "" "%APP_DIR%\\{app_executable_name}"
+                            timeout /t 5 /nobreak >nul
+
+                            if exist "%FINAL_ARCHIVE%" del "%FINAL_ARCHIVE%" >> "%LOG_FILE%" 2>&1
+                            if exist "%OLD_APP_DIR%" rmdir /s /q "%OLD_APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            if exist "%STAGING_DIR%" rmdir /s /q "%STAGING_DIR%" >> "%LOG_FILE%" 2>&1
+
+                            del "%~f0"
+                            exit /b 0
+
+:restore
+                            echo [%date% %time%] Update failed, attempting restore >> "%LOG_FILE%"
+                            if exist "%APP_DIR%" rmdir /s /q "%APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            if exist "%OLD_APP_DIR%" move "%OLD_APP_DIR%" "%APP_DIR%" >> "%LOG_FILE%" 2>&1
+                            exit /b 1
+                        """)
+
+                        with open(script_path, 'w', encoding='utf-8') as f:
+                            f.write(script_content)
+
+                        CREATE_NO_WINDOW = 0x08000000
+                        subprocess.Popen(
+                            ["cmd.exe", "/c", script_path],
+                            creationflags=CREATE_NO_WINDOW,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+
+                    else:
+                        if sys.platform == "darwin":
+                            app_executable_name = "Chord-to-MIDI-GENERATOR"
+                            restart_cmd = f"open '{os.path.join(app_install_dir.parent, app_executable_name + '.app')}'"
+                        else:
+                            app_executable_name = "Chord-to-MIDI-GENERATOR"
+                            executable_path = os.path.join(app_install_dir.parent, app_executable_name)
+                            restart_cmd = f"'{executable_path}'"
+
+                        extract_to_dir = app_install_dir.parent
+                        current_app_path = str(app_install_dir)
+
+                        updater_script_template = textwrap.dedent("""\
 import os
 import sys
 import time
@@ -809,32 +890,27 @@ import subprocess
 import platform
 import glob
 
-# --- f-string을 통해 main.py로부터 전달받는 경로들 ---
-current_app_path = r'{str(app_install_dir)}'
+current_app_path = r'{current_app_path}'
 old_app_path = current_app_path + '.old'
-archive_path = r'{final_path}'
-extract_dir = r'{str(app_install_dir.parent)}'
+archive_path = r'{archive_path}'
+extract_dir = r'{extract_dir}'
 restart_cmd_str = r"{restart_cmd}"
 app_executable_name = r"{app_executable_name}"
 
 try:
-    # 메인 앱이 종료될 시간을 줌
     time.sleep(1.5)
 
-    # 1. 기존 앱/폴더를 .old로 이동
     print(f'Moving {{current_app_path}} to {{old_app_path}}')
     if os.path.exists(current_app_path):
         shutil.move(current_app_path, old_app_path)
 
-    # 2. 1단계 압축 풀기 (OS별 최적화된 방식)
     print(f'Extracting primary archive {{archive_path}}...')
     if sys.platform == "darwin":
         tar_cmd = f"tar -xzf '{{archive_path}}' -C '{{extract_dir}}'"
         subprocess.run(tar_cmd, shell=True, check=True)
-    else: # Windows and others
+    else:
         shutil.unpack_archive(archive_path, extract_dir)
-    
-    # 3. OS에 맞는 2단계 압축 파일 찾기
+
     print("Searching for platform-specific archive recursively...")
     arch_suffix = ""
     if sys.platform == "darwin":
@@ -842,46 +918,41 @@ try:
             arch_suffix = "mac-arm64"
         else:
             arch_suffix = "mac-x86_64"
-    elif sys.platform == "win32":
-        arch_suffix = "win-x86"
-    
+    elif sys.platform == "linux" or sys.platform == "linux2":
+        arch_suffix = "linux-x86_64"
+
     if not arch_suffix:
         raise RuntimeError(f"Unsupported platform: {{sys.platform}}")
 
-    # (핵심 수정) .zip 확장자를 포함하여 파일 검색
     zip_pattern = os.path.join(extract_dir, '**', f'*-{{arch_suffix}}.zip')
     found_archives = glob.glob(zip_pattern, recursive=True)
     if not found_archives:
         raise FileNotFoundError(f"Could not find platform archive with pattern: {{zip_pattern}}")
-    
+
     platform_archive_path = found_archives[0]
     print(f"Found platform archive: {{platform_archive_path}}")
 
-    # 4. 2단계 압축 풀기 (OS별 최적화된 방식)
     print("Unpacking platform archive...")
     if sys.platform == "darwin":
         ditto_cmd = f"ditto -xk '{{platform_archive_path}}' '{{extract_dir}}'"
         subprocess.run(ditto_cmd, shell=True, check=True)
-    else: # Windows and others
+    else:
         shutil.unpack_archive(platform_archive_path, extract_dir)
-    
-    # 5. OS별 후처리
+
     if sys.platform == "darwin":
-        quarantine_cmd = f"xattr -dr com.apple.quarantine '{current_app_path}'"
+        quarantine_cmd = f"xattr -dr com.apple.quarantine '{{current_app_path}}'"
         print(f"Removing quarantine: {{quarantine_cmd}}")
         subprocess.run(quarantine_cmd, shell=True)
-        
+
         executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
         if os.path.exists(executable_path):
             print(f"Setting execute permission on: {{executable_path}}")
             chmod_cmd = f"chmod +x '{{executable_path}}'"
             subprocess.run(chmod_cmd, shell=True)
 
-    # 6. 새 앱 실행
     print('Restarting application...')
     subprocess.Popen(restart_cmd_str, shell=True)
 
-    # 7. 중간 파일 및 .old 폴더 정리
     print("Cleaning up intermediate files...")
     all_zips = glob.glob(os.path.join(extract_dir, '*.zip'))
     for zip_file in all_zips:
@@ -899,7 +970,7 @@ except Exception as e:
             shutil.move(old_app_path, current_app_path)
         except Exception as e_restore:
             print(f"Failed to restore old version: {{e_restore}}")
-        
+
 finally:
     if os.path.exists(archive_path):
         os.remove(archive_path)
@@ -907,35 +978,30 @@ finally:
         os.remove(__file__)
     except OSError:
         pass
-"""
+""")
 
-                    # 임시 폴더에 업데이트 스크립트 작성
-                    script_path = os.path.join(writable_dir, '_updater.py')
-                    with open(script_path, 'w', encoding='utf-8') as f:
-                        f.write(updater_script_content)
+                        updater_script_content = updater_script_template.format(
+                            current_app_path=current_app_path,
+                            archive_path=final_path,
+                            extract_dir=str(extract_to_dir),
+                            restart_cmd=restart_cmd,
+                            app_executable_name=app_executable_name,
+                        )
 
-                    # 로그 파일을 지정하고, 별도 프로세스로 업데이트 스크립트 실행
-                    updater_log_path = os.path.join(writable_dir, 'updater.log')
+                        script_path = os.path.join(writable_dir, '_updater.py')
+                        with open(script_path, 'w', encoding='utf-8') as f:
+                            f.write(updater_script_content)
 
-                    # macOS에서는 관리자 권한을 요청하여 업데이트를 실행
-                    if sys.platform == "darwin":
-                        python_executable = "/usr/bin/python3"
-                        # 경로에 공백이 있을 수 있으므로 따옴표로 감싸줍니다.
-                        command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
-                        # AppleScript는 내부의 큰따옴표/백슬래시를 먼저 이스케이프한 뒤 넣어야 안전합니다.
-                        escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
-                        applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
-                        subprocess.Popen(['osascript', '-e', applescript])
-                    elif sys.platform == "win32":
-                        # Windows에서는 현재 파이썬으로 실행 (sys.executable 권장)
-                        py = sys.executable or "python"
-                        with open(updater_log_path, 'w', encoding='utf-8') as log_file:
-                            subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
-                    else:
-                        # 기타 OS (Linux 등)
-                        py = sys.executable or "python3"
-                        with open(updater_log_path, 'w', encoding='utf-8') as log_file:
-                            subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
+                        if sys.platform == "darwin":
+                            python_executable = "/usr/bin/python3"
+                            command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
+                            escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
+                            applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
+                            subprocess.Popen(['osascript', '-e', applescript])
+                        else:
+                            py = sys.executable or "python3"
+                            with open(updater_log_path, 'w', encoding='utf-8') as log_file:
+                                subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)

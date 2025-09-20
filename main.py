@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.93"
+CURRENT_VERSION = "1.1.94"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -889,7 +889,19 @@ if __name__ == "__main__":
                         )
 
                     else:
+                        current_app_path = str(app_install_dir)
+
                         if sys.platform == "darwin":
+                            try:
+                                subprocess.run(
+                                    ["xattr", "-dr", "com.apple.quarantine", current_app_path],
+                                    check=False,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,
+                                )
+                            except Exception as attr_err:
+                                print(f"Warning: failed to clear quarantine attribute: {attr_err}")
+
                             app_executable_name = "Chord-to-MIDI-GENERATOR"
                             restart_cmd = f"open '{os.path.join(app_install_dir.parent, app_executable_name + '.app')}'"
                         else:
@@ -898,7 +910,16 @@ if __name__ == "__main__":
                             restart_cmd = f"'{executable_path}'"
 
                         extract_to_dir = app_install_dir.parent
-                        current_app_path = str(app_install_dir)
+                        if sys.platform == "darwin":
+                            extract_str = str(extract_to_dir)
+                            if "AppTranslocation" in extract_str or not os.access(extract_str, os.W_OK):
+                                title = "자동 업데이트 불가 (Update Blocked)"
+                                message = (
+                                    "현재 애플리케이션이 읽기 전용 위치에서 실행되고 있어 자동 업데이트를 수행할 수 없습니다.\n"
+                                    "앱을 '응용 프로그램' 폴더 등 쓰기 가능한 위치로 이동한 뒤 다시 실행해 주세요."
+                                )
+                                messagebox.showerror(title, message)
+                                raise RuntimeError("macOS auto-update blocked due to read-only App Translocation location")
 
                         updater_script_template = textwrap.dedent("""\
 import os

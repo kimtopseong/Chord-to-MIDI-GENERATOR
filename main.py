@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.95"
+CURRENT_VERSION = "1.1.96"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -921,6 +921,21 @@ if __name__ == "__main__":
                                 messagebox.showerror(title, message)
                                 raise RuntimeError("macOS auto-update blocked due to read-only App Translocation location")
 
+                        staging_root = Path(target_dir) / f"staging_{latest_version_str}_{sys.platform}"
+                        if staging_root.exists():
+                            shutil.rmtree(staging_root)
+                        staging_root.mkdir(parents=True, exist_ok=True)
+                        staging_root_str = str(staging_root)
+
+                        def _escape_for_py(value: str) -> str:
+                            return value.replace("\\", "\\\\").replace('"', '\\"')
+
+                        escaped_current_app = _escape_for_py(current_app_path)
+                        escaped_archive_path = _escape_for_py(final_path)
+                        escaped_restart_cmd = _escape_for_py(restart_cmd)
+                        escaped_app_name = _escape_for_py(app_executable_name)
+                        escaped_staging_dir = _escape_for_py(staging_root_str)
+
                         updater_script_template = textwrap.dedent("""\
 import os
 import sys
@@ -930,41 +945,45 @@ import subprocess
 import platform
 import glob
 
-current_app_path = r'{current_app_path}'
+current_app_path = r"{current_app_path}"
 old_app_path = current_app_path + '.old'
-archive_path = r'{archive_path}'
-extract_dir = r'{extract_dir}'
+archive_path = r"{archive_path}"
 restart_cmd_str = r"{restart_cmd}"
 app_executable_name = r"{app_executable_name}"
+staging_dir = r"{staging_dir}"
+
+
+def ensure_clean_dir(path):
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+    os.makedirs(path, exist_ok=True)
+
 
 try:
     time.sleep(1.5)
 
-    print(f'Moving {{current_app_path}} to {{old_app_path}}')
-    if os.path.exists(current_app_path):
-        shutil.move(current_app_path, old_app_path)
+    ensure_clean_dir(staging_dir)
+    primary_extract_dir = os.path.join(staging_dir, 'primary')
+    ensure_clean_dir(primary_extract_dir)
 
-    print(f'Extracting primary archive {{archive_path}}...')
-    if sys.platform == "darwin":
-        tar_cmd = f"tar -xzf '{{archive_path}}' -C '{{extract_dir}}'"
+    print(f'Extracting primary archive {{archive_path}} into {{primary_extract_dir}}...')
+    if archive_path.endswith('.tar.gz'):
+        tar_cmd = f"tar -xzf '{{archive_path}}' -C '{{primary_extract_dir}}'"
         subprocess.run(tar_cmd, shell=True, check=True)
     else:
-        shutil.unpack_archive(archive_path, extract_dir)
+        shutil.unpack_archive(archive_path, primary_extract_dir)
 
     print("Searching for platform-specific archive recursively...")
     arch_suffix = ""
     if sys.platform == "darwin":
-        if platform.machine() == "arm64":
-            arch_suffix = "mac-arm64"
-        else:
-            arch_suffix = "mac-x86_64"
-    elif sys.platform == "linux" or sys.platform == "linux2":
+        arch_suffix = "mac-arm64" if platform.machine() == "arm64" else "mac-x86_64"
+    elif sys.platform.startswith("linux"):
         arch_suffix = "linux-x86_64"
 
     if not arch_suffix:
         raise RuntimeError(f"Unsupported platform: {{sys.platform}}")
 
-    zip_pattern = os.path.join(extract_dir, '**', f'*-{{arch_suffix}}.zip')
+    zip_pattern = os.path.join(primary_extract_dir, '**', f'*-{{arch_suffix}}.zip')
     found_archives = glob.glob(zip_pattern, recursive=True)
     if not found_archives:
         raise FileNotFoundError(f"Could not find platform archive with pattern: {{zip_pattern}}")
@@ -972,31 +991,58 @@ try:
     platform_archive_path = found_archives[0]
     print(f"Found platform archive: {{platform_archive_path}}")
 
+    platform_extract_dir = os.path.join(staging_dir, 'payload')
+    ensure_clean_dir(platform_extract_dir)
+
     print("Unpacking platform archive...")
     if sys.platform == "darwin":
-        ditto_cmd = f"ditto -xk '{{platform_archive_path}}' '{{extract_dir}}'"
+        ditto_cmd = f"ditto -xk '{platform_archive_path}' '{platform_extract_dir}'"
         subprocess.run(ditto_cmd, shell=True, check=True)
     else:
-        shutil.unpack_archive(platform_archive_path, extract_dir)
+        shutil.unpack_archive(platform_archive_path, platform_extract_dir)
 
     if sys.platform == "darwin":
-        quarantine_cmd = f"xattr -dr com.apple.quarantine '{{current_app_path}}'"
-        print(f"Removing quarantine: {{quarantine_cmd}}")
-        subprocess.run(quarantine_cmd, shell=True)
+        candidate_apps = glob.glob(os.path.join(platform_extract_dir, '*.app'))
+        if not candidate_apps:
+            candidate_apps = glob.glob(os.path.join(platform_extract_dir, '**', '*.app'), recursive=True)
+        if not candidate_apps:
+            raise FileNotFoundError("Could not find .app bundle in extracted payload.")
+        new_app_root = candidate_apps[0]
+    else:
+        expected_name = os.path.basename(current_app_path.rstrip(os.sep))
+        candidate_path = os.path.join(platform_extract_dir, expected_name)
+        if os.path.exists(candidate_path):
+            new_app_root = candidate_path
+        else:
+            candidates = [p for p in glob.glob(os.path.join(platform_extract_dir, '*')) if os.path.isdir(p)]
+            if len(candidates) == 1:
+                new_app_root = candidates[0]
+            else:
+                raise FileNotFoundError("Could not locate application directory in extracted payload.")
 
+    print(f'Moving {{current_app_path}} to {{old_app_path}}')
+    if os.path.exists(old_app_path):
+        shutil.rmtree(old_app_path, ignore_errors=True)
+    if os.path.exists(current_app_path):
+        shutil.move(current_app_path, old_app_path)
+
+    print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
+    if os.path.exists(current_app_path):
+        shutil.rmtree(current_app_path, ignore_errors=True)
+    shutil.move(new_app_root, current_app_path)
+
+    if sys.platform == "darwin":
+        subprocess.run(f"xattr -dr com.apple.quarantine '{{current_app_path}}'", shell=True, check=False)
         executable_path = os.path.join(current_app_path, 'Contents', 'MacOS', app_executable_name)
         if os.path.exists(executable_path):
-            print(f"Setting execute permission on: {{executable_path}}")
             chmod_cmd = f"chmod +x '{{executable_path}}'"
-            subprocess.run(chmod_cmd, shell=True)
+            subprocess.run(chmod_cmd, shell=True, check=False)
 
     print('Restarting application...')
     subprocess.Popen(restart_cmd_str, shell=True)
 
-    print("Cleaning up intermediate files...")
-    all_zips = glob.glob(os.path.join(extract_dir, '*.zip'))
-    for zip_file in all_zips:
-        os.remove(zip_file)
+    print("Cleaning up staging area...")
+    shutil.rmtree(staging_dir, ignore_errors=True)
 
     time.sleep(5)
     if os.path.exists(old_app_path):
@@ -1014,6 +1060,8 @@ except Exception as e:
 finally:
     if os.path.exists(archive_path):
         os.remove(archive_path)
+    if os.path.exists(staging_dir):
+        shutil.rmtree(staging_dir, ignore_errors=True)
     try:
         os.remove(__file__)
     except OSError:
@@ -1021,11 +1069,11 @@ finally:
 """)
 
                         updater_script_content = updater_script_template.format(
-                            current_app_path=current_app_path,
-                            archive_path=final_path,
-                            extract_dir=str(extract_to_dir),
-                            restart_cmd=restart_cmd,
-                            app_executable_name=app_executable_name,
+                            current_app_path=escaped_current_app,
+                            archive_path=escaped_archive_path,
+                            restart_cmd=escaped_restart_cmd,
+                            app_executable_name=escaped_app_name,
+                            staging_dir=escaped_staging_dir,
                         )
 
                         script_path = os.path.join(writable_dir, '_updater.py')
@@ -1062,6 +1110,7 @@ finally:
                     )
                     messagebox.showerror(title, message)
                     print(f"Error during manual update process: {e}")
+                    raise
 
     except Exception as e:
         # ---------------- TUF 업데이트 실패 시 '플랜 B' 실행 ----------------

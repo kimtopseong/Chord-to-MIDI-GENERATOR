@@ -20,7 +20,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.87"
+CURRENT_VERSION = "1.1.88"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -922,17 +922,20 @@ finally:
                         python_executable = "/usr/bin/python3"
                         # 경로에 공백이 있을 수 있으므로 따옴표로 감싸줍니다.
                         command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
-                        # AppleScript는 내부의 큰따옴표를 이스케이프 처리해야 합니다.
+                        # AppleScript는 내부의 큰따옴표/백슬래시를 먼저 이스케이프한 뒤 넣어야 안전합니다.
                         escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
                         applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
                         subprocess.Popen(['osascript', '-e', applescript])
-                    else: # For other platforms (Windows, etc.)
+                    elif sys.platform == "win32":
+                        # Windows에서는 현재 파이썬으로 실행 (sys.executable 권장)
+                        py = sys.executable or "python"
                         with open(updater_log_path, 'w', encoding='utf-8') as log_file:
-                            subprocess.Popen(
-                                ['/usr/bin/python3', script_path],
-                                stdout=log_file,
-                                stderr=log_file
-                            ) # <-- 이 닫는 괄호 ')'가 추가되었습니다.
+                            subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
+                    else:
+                        # 기타 OS (Linux 등)
+                        py = sys.executable or "python3"
+                        with open(updater_log_path, 'w', encoding='utf-8') as log_file:
+                            subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
                     
                     # 메인 애플리케이션 종료
                     sys.exit(0)

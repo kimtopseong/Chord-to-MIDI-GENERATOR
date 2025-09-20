@@ -21,7 +21,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.108"
+CURRENT_VERSION = "1.1.104"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -1041,6 +1041,7 @@ if __name__ == "__main__":
                         escaped_restart_cmd = _escape_for_py(restart_cmd)
                         escaped_app_name = _escape_for_py(app_executable_name)
                         escaped_staging_dir = _escape_for_py(staging_root_str)
+                        parent_pid = os.getpid()
 
                         updater_script_template = textwrap.dedent("""\
 import os
@@ -1051,6 +1052,7 @@ import subprocess
 import platform
 import glob
 import stat
+import errno
 
 current_app_path = r"{current_app_path}"
 old_app_path = current_app_path + '.old'
@@ -1058,6 +1060,7 @@ archive_path = r"{archive_path}"
 restart_cmd_str = r"{restart_cmd}"
 app_executable_name = r"{app_executable_name}"
 staging_dir = r"{staging_dir}"
+parent_pid = {parent_pid}
 
 
 def ensure_clean_dir(path):
@@ -1098,13 +1101,30 @@ def remove_path(path):
         func(p)
 
     loosen_path(path)
+    removed = False
     if os.path.isdir(path) and not os.path.islink(path):
-        shutil.rmtree(path, onerror=_onerror)
+        try:
+            shutil.rmtree(path, onerror=_onerror)
+            removed = True
+        except OSError:
+            removed = False
     else:
         try:
             os.remove(path)
-        except IsADirectoryError:
-            shutil.rmtree(path, onerror=_onerror)
+            removed = True
+        except (IsADirectoryError, OSError):
+            try:
+                shutil.rmtree(path, onerror=_onerror)
+                removed = True
+            except OSError:
+                removed = False
+
+    if not removed:
+        rm_cmd = shutil.which("rm")
+        if rm_cmd:
+            subprocess.run([rm_cmd, "-rf", path], check=False)
+        if os.path.exists(path):
+            raise OSError(f"Failed to remove path: {{path}}")
 
 
 def move_to_backup(src, backup):
@@ -1121,8 +1141,82 @@ def move_to_backup(src, backup):
         remove_path(src)
 
 
+def is_permission_error(err):
+    if isinstance(err, PermissionError):
+        return True
+    if isinstance(err, OSError) and getattr(err, "errno", None) in (errno.EPERM, errno.EACCES):
+        return True
+    msg = str(err).lower()
+    return "operation not permitted" in msg or "permission denied" in msg
+
+
+def replace_app_via_finder(source_app: str, target_app: str) -> None:
+    parent_dir = os.path.dirname(target_app.rstrip(os.sep))
+    if not parent_dir:
+        raise RuntimeError("Unable to determine destination directory for Finder replacement.")
+
+    def _esc(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    source_esc = _esc(source_app)
+    target_esc = _esc(target_app)
+    parent_esc = _esc(parent_dir)
+    app_name = _esc(os.path.basename(target_app.rstrip(os.sep)))
+
+    cmd = [
+        "osascript",
+        "-e", f'set sourcePath to POSIX file "{source_esc}"',
+        "-e", f'set destPathString to "{target_esc}"',
+        "-e", f'set destParent to POSIX file "{parent_esc}" as alias',
+        "-e", 'set destExists to false',
+        "-e", 'set destRef to missing value',
+        "-e", 'try',
+        "-e", '    set destRef to POSIX file destPathString',
+        "-e", '    set destExists to true',
+        "-e", 'on error',
+        "-e", '    set destRef to missing value',
+        "-e", 'end try',
+        "-e", 'tell application "Finder"',
+        "-e", '    with timeout of 600 seconds',
+        "-e", '        if destExists then delete destRef',
+        "-e", '        set duplicatedItem to duplicate sourcePath to destParent',
+        "-e", f'        set name of duplicatedItem to "{app_name}"',
+        "-e", '    end timeout',
+        "-e", 'end tell'
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or '').strip()
+        raise RuntimeError(f"Finder replacement failed: {{details}}")
+
+
+def is_process_running(pid: int) -> bool:
+    try:
+        if pid <= 0:
+            return False
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def wait_for_parent_exit(pid: int, timeout: float = 90.0) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if not is_process_running(pid):
+            return True
+        time.sleep(0.5)
+    return not is_process_running(pid)
+
+
 try:
+    # Small initial delay and then ensure parent fully exited
     time.sleep(1.5)
+    if parent_pid:
+        print(f"Waiting for parent process {parent_pid} to exit...")
+        if not wait_for_parent_exit(parent_pid, timeout=90.0):
+            print(f"Parent process {parent_pid} still running after timeout; proceeding anyway.")
 
     ensure_clean_dir(staging_dir)
     primary_extract_dir = os.path.join(staging_dir, 'primary')
@@ -1182,12 +1276,30 @@ try:
             else:
                 raise FileNotFoundError("Could not locate application directory in extracted payload.")
 
-    print(f'Moving {{current_app_path}} to {{old_app_path}}')
-    move_to_backup(current_app_path, old_app_path)
+    use_finder_replace = False
 
-    print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
-    remove_path(current_app_path)
-    shutil.move(new_app_root, current_app_path)
+    try:
+        print(f'Moving {{current_app_path}} to {{old_app_path}}')
+        move_to_backup(current_app_path, old_app_path)
+
+        print(f'Placing new build from {{new_app_root}} into {{current_app_path}}')
+        remove_path(current_app_path)
+        shutil.move(new_app_root, current_app_path)
+    except Exception as replace_err:
+        if sys.platform == "darwin" and is_permission_error(replace_err):
+            print(f"Permission issue encountered ({{replace_err}}); attempting Finder-assisted replacement.")
+            use_finder_replace = True
+        else:
+            raise
+
+    if use_finder_replace:
+        replace_app_via_finder(new_app_root, current_app_path)
+        # Attempt to clean up any backup created during fallback; ignore failures.
+        if os.path.exists(old_app_path):
+            try:
+                remove_path(old_app_path)
+            except Exception:
+                pass
 
     if sys.platform == "darwin":
         subprocess.run(f"xattr -dr com.apple.quarantine '{{current_app_path}}'", shell=True, check=False)
@@ -1233,6 +1345,7 @@ finally:
                             restart_cmd=escaped_restart_cmd,
                             app_executable_name=escaped_app_name,
                             staging_dir=escaped_staging_dir,
+                            parent_pid=parent_pid,
                         )
 
                         script_path = os.path.join(writable_dir, '_updater.py')
@@ -1240,11 +1353,21 @@ finally:
                             f.write(updater_script_content)
 
                         if sys.platform == "darwin":
-                            python_executable = "/usr/bin/python3"
-                            command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
-                            escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
-                            applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
-                            subprocess.Popen(['osascript', '-e', applescript])
+                            target_parent = os.path.dirname(current_app_path.rstrip(os.sep)) or os.path.dirname(current_app_path)
+                            can_write_parent = os.access(target_parent, os.W_OK)
+                            can_write_app = os.access(current_app_path, os.W_OK)
+                            needs_admin = not (can_write_parent and can_write_app)
+
+                            if needs_admin:
+                                python_executable = "/usr/bin/python3"
+                                command_with_redirect = f"'{python_executable}' '{script_path}' > '{updater_log_path}' 2>&1"
+                                escaped_cmd = command_with_redirect.replace("\\", "\\\\").replace('"', '\\"')
+                                applescript = f'do shell script "{escaped_cmd}" with administrator privileges'
+                                subprocess.Popen(['osascript', '-e', applescript])
+                            else:
+                                py = sys.executable or "python3"
+                                with open(updater_log_path, 'w', encoding='utf-8') as log_file:
+                                    subprocess.Popen([py, script_path], stdout=log_file, stderr=log_file)
                         else:
                             py = sys.executable or "python3"
                             with open(updater_log_path, 'w', encoding='utf-8') as log_file:

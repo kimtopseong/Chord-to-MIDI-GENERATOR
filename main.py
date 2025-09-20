@@ -21,7 +21,7 @@ from mido import Message, MidiFile, MidiTrack, MetaMessage, bpm2tempo
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.102"
+CURRENT_VERSION = "1.1.103"
 
 class ScrollableFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -202,14 +202,16 @@ class App(ctk.CTk):
 
 
 class UpdateProgressWindow:
-    def __init__(self, title="업데이트 진행 중"):
+    def __init__(self, title="업데이트 진행 중", splash_root=None, **_ignored):
         self._created_root = False
-        if tk._default_root is None:
+
+        parent = splash_root if splash_root is not None else tk._default_root
+        if parent is None:
             self.window = tk.Tk()
             self._created_root = True
         else:
-            self.window = tk.Toplevel()
-            self.window.transient(tk._default_root)
+            self.window = tk.Toplevel(parent)
+            self.window.transient(parent)
 
         self.window.title(title)
         self.window.geometry("360x170")

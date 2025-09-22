@@ -33,7 +33,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.1"
+CURRENT_VERSION = "1.2.2"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -1018,7 +1018,10 @@ class App(ctk.CTk):
         self.part_widgets.append({
             'part_frame': part_frame,
             'measures_grid': measures_grid,
-            'delete_button': delete_btn  # 삭제 버튼 참조 추가
+            'delete_button': delete_btn,
+            'add_button': add_btn,
+            'sub_button': sub_btn,
+            'measures_entry': measures_entry
         })
 
     def _create_measure_cell(self, parent_grid: ctk.CTkFrame, part_idx: int, measure_idx_in_part: int, measure_text: str, insert_index: Optional[int] = None):
@@ -1120,8 +1123,13 @@ class App(ctk.CTk):
         # 7. 전체 마디의 전역 인덱스를 다시 정리합니다.
         for i in range(part_idx, len(self.part_widgets)):
             new_part_idx = i
-            button_to_update = self.part_widgets[i]['delete_button']
-            button_to_update.configure(command=lambda p_idx=new_part_idx: self._delete_part(p_idx))
+            widgets_to_update = self.part_widgets[i]
+            measures_entry = widgets_to_update['measures_entry']
+
+            # Re-bind commands with the new, correct part index
+            widgets_to_update['delete_button'].configure(command=lambda p_idx=new_part_idx: self._delete_part(p_idx))
+            widgets_to_update['add_button'].configure(command=lambda p_idx=new_part_idx, e=measures_entry: self._increase_measures(p_idx, e))
+            widgets_to_update['sub_button'].configure(command=lambda p_idx=new_part_idx, e=measures_entry: self._decrease_measures(p_idx, e))
 
         for i, entry in enumerate(self.measure_entries):
              self.entry_global_idx_map[entry] = i

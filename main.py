@@ -33,7 +33,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.121"
+CURRENT_VERSION = "1.1.123"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 

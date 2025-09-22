@@ -3,7 +3,7 @@ name: Renew TUF Timestamp and Snapshot
 on:
   # 매주 일요일 UTC 05:00 (한국 시간 오후 2시)에 자동으로 실행
   schedule:
-    - cron: '0 5 * * 0'
+    - cron: '25 5 * * 0'
   # GitHub Actions 탭에서 수동으로 실행 가능하도록 설정
   workflow_dispatch:
 
@@ -46,7 +46,6 @@ jobs:
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
         run: |
-          set -e
           mkdir -p keys
           printf "%s" "$TUF_ROOT_KEY" > keys/root
           printf "%s" "$TUF_TARGETS_KEY" > keys/targets
@@ -56,7 +55,6 @@ jobs:
       # 6. tuf_manager.py를 실행하여 snapshot과 timestamp 갱신
       - name: Renew snapshot and timestamp metadata
         run: |
-          set -e
           # 새로운 버전/파일 없이 실행하여 기존 메타데이터의 만료일만 연장
           python tuf_manager.py "latest" "artifacts" "keys" "repository"
 
@@ -64,7 +62,6 @@ jobs:
       - name: Commit and push updated metadata
         run: |
           cd repository
-          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 변경 사항이 있을 때만 커밋 및 푸시

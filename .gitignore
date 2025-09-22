@@ -1,6 +1,7 @@
 dist/
 build/ 
 venv/
+venv-win/
 key_bak/
 repository/
 __pycache__/
@@ -8,3 +9,4 @@ __pycache__/
 *.log
 *.pyc
 git-release.sh
+main 복사본.py

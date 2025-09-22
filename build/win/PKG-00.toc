@@ -1,0 +1,74 @@
+('\\\\Mac\\T7 '
+ 'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\Chord-to-MIDI-GENERATOR.pkg',
+ {'BINARY': True,
+  'DATA': True,
+  'EXECUTABLE': True,
+  'EXTENSION': True,
+  'PYMODULE': True,
+  'PYSOURCE': True,
+  'PYZ': False,
+  'SPLASH': True,
+  'SYMLINK': False},
+ [('pyi-contents-directory _internal', '', 'OPTION'),
+  ('PYZ-00.pyz',
+   '\\\\Mac\\T7 Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\PYZ-00.pyz',
+   'PYZ'),
+  ('struct',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\localpycs\\struct.pyc',
+   'PYMODULE'),
+  ('pyimod01_archive',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\localpycs\\pyimod01_archive.pyc',
+   'PYMODULE'),
+  ('pyimod02_importers',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\localpycs\\pyimod02_importers.pyc',
+   'PYMODULE'),
+  ('pyimod03_ctypes',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\localpycs\\pyimod03_ctypes.pyc',
+   'PYMODULE'),
+  ('pyimod04_pywin32',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\build\\win\\localpycs\\pyimod04_pywin32.pyc',
+   'PYMODULE'),
+  ('pyiboot01_bootstrap',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
+   'PYSOURCE'),
+  ('pyi_rth_cryptography_openssl',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_cryptography_openssl.py',
+   'PYSOURCE'),
+  ('pyi_rth_pkgutil',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_pkgutil.py',
+   'PYSOURCE'),
+  ('pyi_rth_multiprocessing',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_multiprocessing.py',
+   'PYSOURCE'),
+  ('pyi_rth_setuptools',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_setuptools.py',
+   'PYSOURCE'),
+  ('pyi_rth__tkinter',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'PYSOURCE'),
+  ('pyi_rth_inspect',
+   '\\\\Mac\\T7 '
+   'Shield\\dev\\Chord-to-MIDI-GENERATOR\\venv-win\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
+   'PYSOURCE'),
+  ('main',
+   '\\\\Mac\\T7 Shield\\dev\\Chord-to-MIDI-GENERATOR\\main.py',
+   'PYSOURCE')],
+ 'python313.dll',
+ True,
+ False,
+ False,
+ [],
+ None,
+ None,
+ None)

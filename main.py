@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Chord to MIDI Generator (v11.8 - UI Sorting and New 'blk' Chord)
-- Reordered the Quality dropdown list for better usability.
-- Added a new special chord quality: 'blk' (e.g., Cblk = A#aug/C).
-- Implemented parsing and voicing logic for the new 'blk' chord.
-"""
+
 import sys
 import re
 import atexit
@@ -33,7 +28,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.2"
+CURRENT_VERSION = "1.2.3"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -118,9 +113,6 @@ class ScrollableFrame(ctk.CTkFrame):
         self.vsb = ctk.CTkScrollbar(self, orientation="vertical", command=self.canvas.yview); self.canvas.configure(yscrollcommand=self.vsb.set)
         self.inner = ctk.CTkFrame(self, fg_color="transparent"); self.inner_id = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
 
-        # Bind mouse wheel events for scrolling.
-        # We bind to the canvas widget, which is a standard tkinter widget.
-        # Its bind_all method will correctly bind to the top-level window.
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel_event, add="+")
         self.canvas.bind_all("<Button-4>", self._on_mousewheel_event, add="+")
         self.canvas.bind_all("<Button-5>", self._on_mousewheel_event, add="+")
@@ -237,8 +229,7 @@ class App(ctk.CTk):
     KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B', 'Cb']
     KEY_PREFERS_SHARPS = {'C':True,'G':True,'D':True,'A':True,'E':True,'B':True,'F#':True,'C#':True, 'F':False,'Bb':False,'Eb':False,'Ab':False,'Db':False,'Gb':False,'Cb':False}
     MAJOR_DEGREE_TO_SEMITONES = {'I':0, 'II':2, 'III':4, 'IV':5, 'V':7, 'VI':9, 'VII':11}
-    TENSIONS_LIST = ['b9', '9', '#9', '11', '#11', 'b13', '13']
-    # [REQUEST] Reorder list and add 'blk'
+    TENSIONS_LIST = ['b9', '9', '#9', '11', '#11', 'b6', 'b13', '13']
     QUALITY_SYMBOLS = ["Major", "Minor", "7", "M7", "m7", "7b5", "M7b5", "m7b5", "dim", "dim7", "aug", "blk", "sus2", "sus4", "omit3", "omit5"]
     ROMAN_DEGREES_BUILDER = ['I', 'bII', 'II', 'bIII', 'III', 'IV', '#IV', 'V', 'bVI', 'VI', 'bVII', 'VII']
     PART_COLORS = ['#3a6ea5', '#ff885b', '#57a773', '#b86fc6', '#f2c14e', '#e63946', '#6d597a', '#277da1', '#bc6c25', '#118ab2']
@@ -309,7 +300,7 @@ class App(ctk.CTk):
         if inner.startswith('(') and inner.endswith(')'): inner = inner[1:-1]
         if not inner: return []
         parts = [p.strip() for p in inner.split(',') if p.strip()]
-        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:5|9|11|13)', p.replace('+', '#').replace('-', 'b'))]
+        norm = [p.replace('+', '#').replace('-', 'b') for p in parts if re.fullmatch(r'(?:b|#)?(?:5|6|9|11|13)', p.replace('+', '#').replace('-', 'b'))]
         seen, out = set(), []
         for t in norm:
             core_num = ''.join(filter(str.isdigit, t))
@@ -412,10 +403,10 @@ class App(ctk.CTk):
         elif tensions or paren_contents:
             # Don't add a 7th automatically if the only tension is '6'
             non_six_tensions = [t for t in tensions if t != '6']
-            if non_six_tensions or paren_contents:
-                is_minor_in_parens = any('m' in p for p in paren_contents)
-                if not is_minor_in_parens:
-                    seventh = 'm7'
+            # Add a 7th only if tensions like 9, 11, 13 are present outside of parentheses.
+            # Tensions in parentheses (e.g., C(9)) are "add" notes and do not imply a 7th.
+            if non_six_tensions:
+                seventh = 'm7'
 
         if is_blk:
             quality = 'blk'
@@ -456,14 +447,15 @@ class App(ctk.CTk):
                     else: base = 'b' + sem_to_deg.get(flatted_pc, 'I')
                 base = base or 'I'
         else: base = p.root
-
-        qual_str = ''
-        if p.quality == 'Minor': qual_str = 'm'
-        elif p.quality == 'dim' and not (p.seventh == 'm7' or p.seventh == 'dim7'): qual_str = 'dim'
-        elif p.quality == 'aug': qual_str = 'aug'
-        elif p.quality == 'blk': qual_str = 'blk'
-        elif p.quality == 'sus2': qual_str = 'sus2'
-        elif p.quality == 'sus4': qual_str = 'sus4'
+ 
+        core_qual_str = ''
+        sus_str = ''
+        if p.quality == 'Minor': core_qual_str = 'm'
+        elif p.quality == 'dim' and not (p.seventh == 'm7' or p.seventh == 'dim7'): core_qual_str = 'dim'
+        elif p.quality == 'aug': core_qual_str = 'aug'
+        elif p.quality == 'blk': core_qual_str = 'blk'
+        elif p.quality == 'sus2': sus_str = 'sus2'
+        elif p.quality == 'sus4': sus_str = 'sus4'
 
         has_6 = '6' in p.tensions
         other_tensions = [t for t in p.tensions if t != '6']
@@ -481,18 +473,19 @@ class App(ctk.CTk):
         elif p.seventh:
             num_part = '7'
             if p.seventh == 'M7': sev_prefix = 'M'
-            elif p.seventh == 'dim7': qual_str, num_part = '', 'dim7'
+            elif p.seventh == 'dim7': core_qual_str, num_part = '', 'dim7'
 
         if p.quality == 'dim' and p.seventh == 'm7':
-            qual_str, sev_prefix, num_part, alt_str, six_part = '', 'm', '7b5', '', ''
+            core_qual_str, sev_prefix, num_part, alt_str, six_part = '', 'm', '7b5', '', ''
+            sus_str = ''
         else:
             alt_str = ''.join(p.alterations)
 
         paren_str = f"({','.join(p.paren_contents)})" if p.paren_contents else ''
         om_str = ''.join([f"omit{o}" for o in p.omissions])
         bass_str = f"/{p.bass_note}" if p.bass_note and p.bass_note != p.root else ""
-
-        return f"{base}{qual_str}{six_part}{sev_prefix}{num_part}{alt_str}{om_str}{paren_str}{bass_str}"
+ 
+        return f"{base}{core_qual_str}{six_part}{sev_prefix}{num_part}{alt_str}{sus_str}{om_str}{paren_str}{bass_str}"
 
     @staticmethod
     def build_voicing(parsed: 'App.ParsedChord', omit5_on_conflict: bool, omit_duplicated_bass: bool) -> List[int]:
@@ -526,8 +519,8 @@ class App(ctk.CTk):
             if 3 in parsed.omissions: intervals = [i for i in intervals if i not in [2,3,4,5]]
             if 5 in parsed.omissions: intervals = [i for i in intervals if i not in [6,7,8]]
 
-            tension_map = {'6': 9, '9':14, 'b9':13, '#9':15, '11':17, '#11':18, '13':21, 'b13':20}
-            if omit5_on_conflict and any(t in all_tensions for t in ['#11','b13']):
+            tension_map = {'6': 9, 'b6': 8, '9':14, 'b9':13, '#9':15, '11':17, '#11':18, '13':21, 'b13':20}
+            if omit5_on_conflict and any(t in all_tensions for t in ['#11', 'b13', 'b6']):
                 intervals = [iv for iv in intervals if iv % 12 != 7]
             for t in all_tensions:
                 if t in tension_map: intervals.append(tension_map[t])
@@ -803,7 +796,7 @@ class App(ctk.CTk):
         self._update_language(); self._suppress = False; self.after(50, self._initialize_chart); self._log("App started.")
         self.after(100, self.splash_root.withdraw)
         if sys.platform == "darwin":
-            # macOS에서는 네이티브 메뉴바와 직접 바인딩을 함께 사용해 한글 입력기 호환성을 높입니다.
+
             menubar = tk.Menu(self)
             self.config(menu=menubar)
 
@@ -815,24 +808,10 @@ class App(ctk.CTk):
             # Edit 메뉴
             edit_menu = tk.Menu(menubar, name='edit')
             menubar.add_cascade(label='Edit', menu=edit_menu)
-            edit_menu.add_command(label='Cut', accelerator='Cmd+X', command=lambda: self.focus_get().event_generate('<<Cut>>'))
-            edit_menu.add_command(label='Copy', accelerator='Cmd+C', command=lambda: self.focus_get().event_generate('<<Copy>>'))
-            edit_menu.add_command(label='Paste', accelerator='Cmd+V', command=lambda: self.focus_get().event_generate('<<Paste>>'))
-            edit_menu.add_command(label='Select All', accelerator='Cmd+A', command=lambda: self.focus_get().event_generate('<<SelectAll>>'))
-
-            # 한글 입력기 호환성을 위한 직접 바인딩 (대소문자 모두 처리)
-            # lambda event: ... 구문은 bind_all이 전달하는 불필요한 event 인수를 무시하기 위해 사용합니다.
-            self.bind_all("<Command-s>", on_save_midi)
-            self.bind_all("<Command-S>", on_save_midi)
-            self.bind_all("<Command-c>", lambda event: self.focus_get().event_generate("<<Copy>>"))
-            self.bind_all("<Command-C>", lambda event: self.focus_get().event_generate("<<Copy>>"))
-            self.bind_all("<Command-v>", lambda event: self.focus_get().event_generate("<<Paste>>"))
-            self.bind_all("<Command-V>", lambda event: self.focus_get().event_generate("<<Paste>>"))
-            self.bind_all("<Command-x>", lambda event: self.focus_get().event_generate("<<Cut>>"))
-            self.bind_all("<Command-X>", lambda event: self.focus_get().event_generate("<<Cut>>"))
-            self.bind_all("<Command-a>", lambda event: self.focus_get().event_generate("<<SelectAll>>"))
-            self.bind_all("<Command-A>", lambda event: self.focus_get().event_generate("<<SelectAll>>"))
-
+            edit_menu.add_command(label='Cut', accelerator='Cmd+X', command=lambda: self.event_generate('<<Cut>>'))
+            edit_menu.add_command(label='Copy', accelerator='Cmd+C', command=lambda: self.event_generate('<<Copy>>'))
+            edit_menu.add_command(label='Paste', accelerator='Cmd+V', command=lambda: self.event_generate('<<Paste>>'))
+            edit_menu.add_command(label='Select All', accelerator='Cmd+A', command=lambda: self.event_generate('<<SelectAll>>'))
         else:
             # 다른 OS에서는 기존의 단축키 바인딩 방식을 사용합니다.
             self._configure_shortcuts(on_save_midi)
@@ -1246,6 +1225,22 @@ class App(ctk.CTk):
         except (IndexError, KeyError) as e:
             self._log(f"Error updating part data: {e}")
 
+    def _sync_entry_to_model(self, entry_widget: ctk.CTkEntry):
+        """Synchronizes the content of a given measure entry widget with the internal data model."""
+        if not isinstance(entry_widget, ctk.CTkEntry) or entry_widget not in self.entry_part_map:
+            return
+
+        part_idx = self.entry_part_map[entry_widget]
+        
+        # Find the index of the entry within its part's entries.
+        part_entries = [e for e in self.measure_entries if self.entry_part_map.get(e) == part_idx]
+        try:
+            measure_idx_in_part = part_entries.index(entry_widget)
+            self._update_part_data(part_idx, f'measures.{measure_idx_in_part}', entry_widget.get())
+        except (ValueError, KeyError):
+            # This might happen if the widget is not a measure entry, which is fine.
+            self._log(f"Could not sync entry to model for widget {entry_widget}")
+
     def _update_scroll_region_and_view(self, y_moveto: Optional[float] = None):
         """Updates the scroll region and optionally moves the view."""
         self.measures_frame.update_idletasks()
@@ -1261,8 +1256,6 @@ class App(ctk.CTk):
         self.bind_all(f"<{modifier}-s>", save_handler, add="+")
         self.bind_all(f"<{modifier}-S>", save_handler, add="+")
 
-        # On Windows/Linux, standard copy/paste shortcuts are generally handled
-        # by the default widget bindings, so no extra bindings are needed here.
 
     # --- End of New UI Core Functions ---
 
@@ -1386,16 +1379,7 @@ class App(ctk.CTk):
         target.insert(0, (cur + " " + sym).strip())
         self._log(f"Inserted chord: {sym}")
         
-        # Update data model
-        if target in self.entry_part_map:
-            part_idx = self.entry_part_map[target]
-            # Find measure index within the part
-            part_entries = [e for e in self.measure_entries if self.entry_part_map.get(e) == part_idx]
-            try:
-                measure_idx_in_part = part_entries.index(target)
-                self._update_part_data(part_idx, f'measures.{measure_idx_in_part}', target.get())
-            except ValueError:
-                pass
+        self._sync_entry_to_model(target)
 
     def _on_generate_midi(self):
         try:
@@ -1447,22 +1431,26 @@ class App(ctk.CTk):
             self._log(f"FATAL Error generating MIDI: {e}"); messagebox.showerror("Error", f"Failed to generate MIDI:\n{e}")
 
     def _serialize_chart(self) -> str:
-        """Serializes the current chart data into a string for saving."""
+        """Serializes the current chart data into a string, reading live measure data from UI widgets."""
         lines: List[str] = []
-        for part_data in self.parts_data:
+        for part_idx, part_data in enumerate(self.parts_data):
             part_name = part_data.get('part', '').strip()
             key = part_data.get('key', '').strip()
-            
+
             header_bits: List[str] = []
             if part_name:
                 header_bits.append(f"[{part_name}]")
             if key:
                 header_bits.append(f"(Key:{key})")
-            
+
             if header_bits:
                 lines.append(" ".join(header_bits).strip())
-                
-            measures = part_data.get('measures', [])
+
+            # Get all entry widgets belonging to the current part
+            part_entries = [e for e in self.measure_entries if self.entry_part_map.get(e) == part_idx]
+            # Get the text from each entry widget to ensure the latest content is captured
+            measures = [entry.get() for entry in part_entries]
+
             for i in range(0, len(measures), 4):
                 chunk = measures[i:i+4]
                 measure_line = " | ".join(m.strip() for m in chunk)
@@ -1581,6 +1569,9 @@ class App(ctk.CTk):
         self._log(f"Loaded chart from {path}")
 
     def _save_chart_to_file(self):
+        # _serialize_chart now reads live data directly from the UI widgets,
+        # so we don't need to sync the data model here. This ensures the
+        # last edited measure is always included.
         text_content = self._serialize_chart()
         path = filedialog.asksaveasfilename(title="Save Chart", defaultextension=".txt", filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
         if not path:
@@ -1652,7 +1643,6 @@ if __name__ == "__main__":
         bundled_root_json_path_str = App.resource_path('root.json')
         shutil.copy(bundled_root_json_path_str, metadata_dir / 'root.json')
 
-        # ---- 수정된 부분: app_install_dir 정의 위치 변경 ----
         # PyInstaller로 빌드되었는지 여부에 따라 앱 설치 경로를 결정
         if getattr(sys, 'frozen', False):
             app_executable_path = Path(sys.executable)
@@ -1665,7 +1655,6 @@ if __name__ == "__main__":
         else:
             # 일반 파이썬 스크립트로 실행될 경우
             app_install_dir = Path(__file__).parent
-        # ---------------------------------------------------
         
         METADATA_BASE_URL = 'https://kimtopseong.github.io/Chord-to-MIDI-GENERATOR/metadata'
         target_dir = writable_dir / 'targets'
@@ -2739,8 +2728,6 @@ finally:
         print("Executing fallback: Opening the releases page directly.")
         
         try:
-            # GitHub API 호출 대신, 항상 최신 릴리즈로 연결되는 URL을 직접 사용합니다.
-            # 이것이 훨씬 안정적이며, 문제가 발생한 requests 라이브러리 호출을 피할 수 있습니다.
             latest_release_url = "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
             
             # 사용자에게 수동 업데이트 안내

@@ -6,7 +6,7 @@ BASE = os.path.abspath(os.path.dirname(SPECPATH))
 
 a = Analysis(
     ['main.py'],
-    pathex=[BASE],  # 'pathex'는 한 번만, 그리고 BASE를 사용해야 합니다.
+    pathex=[BASE], 
     binaries=[],
     datas=[
         ('loading.png', '.'),

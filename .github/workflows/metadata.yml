@@ -1,0 +1,75 @@
+name: Renew TUF Timestamp and Snapshot
+
+on:
+  # 매주 일요일 UTC 05:00 (한국 시간 오후 2시)에 자동으로 실행
+  schedule:
+    - cron: '0 5 * * 0'
+  # GitHub Actions 탭에서 수동으로 실행 가능하도록 설정
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  renew:
+    name: Renew TUF Timestamp and Snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. tuf_manager.py 스크립트 등을 가져오기 위해 메인 브랜치 체크아웃
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+
+      # 2. 현재 TUF 메타데이터를 가져오기 위해 gh-pages 브랜치를 'repository' 폴더에 체크아웃
+      - name: Checkout gh-pages branch into repository directory
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: repository
+
+      # 3. 파이썬 3.11 환경 설정
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 4. 의존성 설치
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 5. GitHub Secrets에서 서명 키 파일 생성
+      - name: Create TUF key files from secrets
+        env:
+          TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
+          TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
+          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
+          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+        run: |
+          mkdir -p keys
+          printf "%s" "$TUF_ROOT_KEY" > keys/root
+          printf "%s" "$TUF_TARGETS_KEY" > keys/targets
+          printf "%s" "$TUF_SNAPSHOT_KEY" > keys/snapshot
+          printf "%s" "$TUF_TIMESTAMP_KEY" > keys/timestamp
+
+      # 6. tuf_manager.py를 실행하여 snapshot과 timestamp 갱신
+      - name: Renew snapshot and timestamp metadata
+        run: |
+          # 새로운 버전/파일 없이 실행하여 기존 메타데이터의 만료일만 연장
+          python tuf_manager.py "latest" "artifacts" "keys" "repository"
+
+      # 7. 갱신된 메타데이터를 gh-pages 브랜치에 커밋 및 푸시
+      - name: Commit and push updated metadata
+        run: |
+          cd repository
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 변경 사항이 있을 때만 커밋 및 푸시
+          if ! git diff --quiet; then
+            git add .
+            git commit -m "Automated TUF metadata renewal (snapshot, timestamp)"
+            git push
+            echo "Successfully renewed and pushed TUF metadata."
+          else
+            echo "No metadata changes to commit."
+          fi

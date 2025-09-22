@@ -33,7 +33,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.1.118"
+CURRENT_VERSION = "1.1.120"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -1580,6 +1580,7 @@ if __name__ == "__main__":
         """Escapes a string for safe inclusion in a Python multiline string."""
         return (value
                 .replace("\\", "\\\\")
+                .replace("'", "\\'")  
                 .replace('"', '\\"')
                 .replace('{', '{{')
                 .replace('}', '}}'))    
@@ -2434,11 +2435,11 @@ def write_status(state: str, message: str, percent=None) -> None:
     except (TypeError, ValueError):
         percent_value = -1
 
-    safe_message = str(message).replace('\n', ' ').replace('|', '/')
+    safe_message = str(message).replace('\\n', ' ').replace('|', '/')
     tmp_path = status_path + '.tmp'
     try:
         with open(tmp_path, 'w', encoding='utf-8') as status_file:
-            status_file.write(f"{state}|{percent_value}|{safe_message}")
+            status_file.write(state + '|' + str(percent_value) + '|' + safe_message)
         os.replace(tmp_path, status_path)
     except OSError:
         pass
@@ -2712,43 +2713,34 @@ finally:
 
     except Exception as e:
         # ---------------- TUF 업데이트 실패 시 '플랜 B' 실행 ----------------
-        print(f"TUF update failed: {e}")
-        print("Attempting fallback update check via GitHub API...")
+        import traceback
+        print("--- DETAILED UPDATE ERROR ---")
+        traceback.print_exc()
+        print("-----------------------------")
+        print(f"TUF update check failed: {e}")
+        print("Executing fallback: Opening the releases page directly.")
         
         try:
-            # GitHub API를 통해 최신 릴리즈 정보 가져오기
-            api_url = "https://api.github.com/repos/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
-            response = requests.get(api_url, timeout=5)
-            response.raise_for_status() # HTTP 오류가 있으면 예외 발생
+            # GitHub API 호출 대신, 항상 최신 릴리즈로 연결되는 URL을 직접 사용합니다.
+            # 이것이 훨씬 안정적이며, 문제가 발생한 requests 라이브러리 호출을 피할 수 있습니다.
+            latest_release_url = "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
             
-            latest_release = response.json()
-            # tag_name에서 'v'를 제거하여 버전 번호만 추출
-            latest_version_str = latest_release.get("tag_name", "v0.0.0").lstrip('v')
-            
-            # 현재 버전과 최신 버전 비교
-            if parse_version(latest_version_str) > parse_version(CURRENT_VERSION):
-                
-                # 사용자에게 수동 업데이트 안내
-                title = "수동 업데이트 필요 (Manual Update Required)"
-                message = (
-                    f"새로운 버전(v{latest_version_str})이 발견되었지만, 자동 업데이트에 실패했습니다.\n"
-                    f"다운로드 페이지로 이동하시겠습니까?\n"
-                    f"---\n"
-                    f"A new version (v{latest_version_str}) was found, but automatic update failed.\n"
-                    f"Would you like to go to the download page?"
-                )
-                if messagebox.askyesno(title, message):
-                    # GitHub 릴리즈 페이지를 웹 브라우저로 열기
-                    download_url = latest_release.get("html_url")
-                    if download_url:
-                        webbrowser.open(download_url)
+            # 사용자에게 수동 업데이트 안내
+            title = "수동 업데이트 필요 (Manual Update Required)"
+            message = (
+                f"새로운 버전을 확인하는 중 오류가 발생했습니다.\n"
+                f"다운로드 페이지로 이동하여 최신 버전을 직접 확인하시겠습니까?\n"
+                f"---\n"
+                f"An error occurred while checking for a new version.\n"
+                f"Would you like to go to the download page to check for the latest version manually?"
+            )
+            if messagebox.askyesno(title, message):
+                webbrowser.open(latest_release_url)
         
-        except requests.exceptions.RequestException as api_error:
-            # 네트워크 오류 등으로 GitHub API 접근 실패 시
-            print(f"GitHub API check failed: {api_error}")
         except Exception as fallback_error:
-            # 기타 예외 처리
-            print(f"An unexpected error occurred during fallback check: {fallback_error}")
+            # webbrowser.open 실패 등 최후의 예외 처리
+            print(f"An unexpected error occurred during the fallback process: {fallback_error}")
+    
     
     splash_root = tk.Tk(); splash_root.overrideredirect(True)
     try:

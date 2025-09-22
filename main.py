@@ -33,7 +33,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.2.1"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -370,7 +370,17 @@ class App(ctk.CTk):
                 if inner:
                     s = inner
 
-        s = s.replace('maj7', 'M7').replace('Maj7','M7').replace('min','m').replace('-', 'm').replace('ø', 'm7b5').replace('°', 'dim')
+        s = s.replace('maj7', 'M7').replace('Maj7','M7').replace('min','m').replace('ø', 'm7b5').replace('°', 'dim')
+
+        # Handle +/- alterations before '-' is treated as minor.
+        # This correctly handles C7-5 (C7b5) vs C-7 (Cm7).
+        s = s.replace('-5', 'b5').replace('+5', '#5')
+        s = s.replace('-9', 'b9').replace('+9', '#9')
+        s = s.replace('+11', '#11')
+        s = s.replace('-13', 'b13')
+
+        # Now, handle standalone '-' as minor
+        s = s.replace('-', 'm')
 
         m_roman = re.match(fr'(?i)^([b#]?{App.ROMAN_PATTERN})', s)
         if m_roman:

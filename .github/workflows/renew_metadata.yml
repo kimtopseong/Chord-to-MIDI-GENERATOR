@@ -3,7 +3,7 @@ name: Renew TUF Timestamp and Snapshot
 on:
   # 매일 UTC 15:22 (한국 시간 00:22)에 자동으로 실행
   schedule:
-    - cron: '22 15 * * *'
+    - cron: '0 16 * * *'
   # GitHub Actions 탭에서 수동으로 실행 가능하도록 설정
   workflow_dispatch:
 

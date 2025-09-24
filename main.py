@@ -28,7 +28,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.3"
+CURRENT_VERSION = "1.2.4"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -2718,32 +2718,49 @@ finally:
                             except OSError:
                                 pass
 
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
+        # 인터넷 연결 오류 등 네트워크 문제는 사용자에게 알리지 않고 넘어갑니다.
+        print(f"A network error occurred during the update check: {e}")
+        print("Skipping update check.")
+
+    except Exception as tuf_error:
         # ---------------- TUF 업데이트 실패 시 '플랜 B' 실행 ----------------
         import traceback
         print("--- DETAILED UPDATE ERROR ---")
         traceback.print_exc()
         print("-----------------------------")
-        print(f"TUF update check failed: {e}")
-        print("Executing fallback: Opening the releases page directly.")
+        print(f"TUF update check failed: {tuf_error}")
+        print("Executing fallback: Checking latest release from GitHub API.")
         
         try:
-            latest_release_url = "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
-            
-            # 사용자에게 수동 업데이트 안내
-            title = "수동 업데이트 필요 (Manual Update Required)"
-            message = (
-                f"새로운 버전을 확인하는 중 오류가 발생했습니다.\n"
-                f"다운로드 페이지로 이동하여 최신 버전을 직접 확인하시겠습니까?\n"
-                f"---\n"
-                f"An error occurred while checking for a new version.\n"
-                f"Would you like to go to the download page to check for the latest version manually?"
-            )
-            if messagebox.askyesno(title, message):
-                webbrowser.open(latest_release_url)
+            # GitHub API를 통해 최신 릴리스 정보를 가져옵니다.
+            api_url = "https://api.github.com/repos/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            release_data = response.json()
+            latest_tag = release_data.get("tag_name", "v0.0.0").lstrip('v')
+
+            # 현재 버전과 최신 릴리스 버전을 비교합니다.
+            if parse_version(latest_tag) > parse_version(CURRENT_VERSION):
+                print(f"Newer version {latest_tag} found, current is {CURRENT_VERSION}. Prompting for manual update.")
+                
+                # 사용자에게 수동 업데이트 안내
+                title = "수동 업데이트 안내 (Manual Update)"
+                message = (
+                    f"새 버전(v{latest_tag})이 감지되었으나 자동 업데이트가 불가능합니다.\n"
+                    f"새 버전의 다운로드 페이지로 이동하시겠습니까?\n"
+                    f"---\n"
+                    f"A new version (v{latest_tag}) was detected, but automatic update is not available.\n"
+                    f"Would you like to go to the download page?"
+                )
+                if messagebox.askyesno(title, message):
+                    webbrowser.open(release_data.get("html_url", "https://github.com/kimtopseong/Chord-to-MIDI-GENERATOR/releases/latest"))
+            else:
+                print("Current version is up to date. No manual update prompt needed.")
         
         except Exception as fallback_error:
-            # webbrowser.open 실패 등 최후의 예외 처리
+            # GitHub API 호출 실패 등 최후의 예외 처리
+            print(f"TUF fallback check also failed: {fallback_error}")
             print(f"An unexpected error occurred during the fallback process: {fallback_error}")
     
     

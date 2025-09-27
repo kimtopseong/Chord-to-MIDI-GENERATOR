@@ -28,7 +28,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.5"
+CURRENT_VERSION = "1.2.6"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -655,8 +655,8 @@ class App(ctk.CTk):
                      "• 모든 코드는 한 옥타브 낮은 베이스음과 함께 연주됩니다.\n"
                      "• 코드 빌더는 선택한 마디 칸에 코드를 생성하는 도구입니다.\n\n"
                      "------------------------------------\n"
-                     "## 악보 차트 파일(.txt) 규칙\n"
-                     "텍스트 파일로 저장된 악보를 '불러오기' 기능으로 가져올 수 있습니다.\n\n"
+                     "## 코드 차트 파일(.txt) 규칙\n"
+                     "텍스트 파일로 저장된 코드를 '불러오기' 기능으로 가져올 수 있습니다.\n\n"
                      "• `[파트 이름]` : 대괄호`[]`를 사용하여 Intro, Verse 등 파트를 지정합니다.\n"
                      "• `(Key:키)` : 소괄호`()`와 `Key:`를 조합하여 해당 파트의 키를 지정합니다.\n"
                      "• `|` (수직선) : 마디를 구분하는 기호입니다. 한 줄은 보통 4마디를 의미합니다.\n"
@@ -670,7 +670,17 @@ class App(ctk.CTk):
                      "| Eb     | %          | AbM7   | Abm7  |\n"
                      "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |",
                 "clear_confirm_title": "확인",
-                "clear_confirm_message": "모든 마디에 입력된 코드를 정말로 지우시겠습니까?"
+                "clear_confirm_message": "모든 마디에 입력된 코드를 정말로 지우시겠습니까?",
+                "chart_input_tab_title": "코드 차트 입력",
+                "apply_chart": "적용",
+                "chart_input_placeholder": (
+                    "### 예시 코드 차트 ###\n\n"
+                    "[intro] (Key:C)\n"
+                    "| FM7    | G7    | Em7    | Am7   |\n"
+                    "| FM7    | G7    | Am7    | %     |\n\n"
+                    "[A] (Key:Eb)\n"
+                     "| Eb     | %          | AbM7   | Abm7  |\n"
+                     "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |")
             },
             "en": {
                 "title": "Chord to MIDI",
@@ -713,10 +723,19 @@ class App(ctk.CTk):
                      "| FM7    | G7    | Am7    | %     |\n\n"
                      "[A] (Key:Eb)\n"
                      "| Eb     | %          | AbM7   | Abm7  |\n"
-
                      "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |",
                 "clear_confirm_title": "Confirmation",
-                "clear_confirm_message": "Are you sure you want to clear all chords from all measures?"
+                "clear_confirm_message": "Are you sure you want to clear all chords from all measures?",
+                "chart_input_tab_title": "Code Chart Input",
+                "apply_chart": "Apply",
+                "chart_input_placeholder": (
+                    "### Example Code Chart ###\n\n"
+                    "[intro] (Key:C)\n"
+                    "| FM7    | G7    | Em7    | Am7   |\n"
+                    "| FM7    | G7    | Am7    | %     |\n\n"
+                    "[A] (Key:Eb)\n"
+                     "| Eb     | %          | AbM7   | Abm7  |\n"
+                     "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |")
             }
         }
         self.lang_code = "ko"
@@ -732,6 +751,7 @@ class App(ctk.CTk):
         self.font_measure = ctk.CTkFont(family="Menlo", size=12)
         self._suppress, self._building, self.last_focused_entry = True, False, None
         self._pending_part_box_update = None
+        self._chart_input_tab_name = "코드 차트 입력" # 탭 이름 추적을 위한 변수
 
         self.grid_columnconfigure(0, weight=1); self.grid_columnconfigure(1, minsize=320, weight=0); self.grid_rowconfigure(2, weight=1)
 
@@ -824,41 +844,39 @@ class App(ctk.CTk):
         self.reset_tensions_btn = ctk.CTkButton(self.builder_frame, font=self.font_main, command=self._reset_tensions, fg_color="transparent", border_width=1); self.reset_tensions_btn.grid(row=9, column=0, columnspan=4, padx=15, pady=(10,5), sticky="ew")
         self.insert_btn = ctk.CTkButton(self.builder_frame, font=self.font_bold, command=self._on_build_and_insert); self.insert_btn.grid(row=10, column=0, columnspan=4, padx=15, pady=5, sticky="ew")
         
-        # --- Bottom Area ---
+        # --- 하단 영역 ---
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.bottom_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=(5,10), sticky="nsew")
         self.bottom_frame.grid_columnconfigure(0, weight=1)
         self.bottom_frame.grid_columnconfigure(1, weight=1)
         self.bottom_frame.grid_rowconfigure(0, weight=1)
 
-        # Left side: Chart text input
-        self.chart_input_frame = ctk.CTkFrame(self.bottom_frame)
-        self.chart_input_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        self.chart_input_frame.grid_rowconfigure(0, weight=1)
-        self.chart_input_frame.grid_columnconfigure(0, weight=1)
+        # 왼쪽: 차트 텍스트 입력 (오른쪽과 UI 통일을 위해 Tabview 사용)
+        self.chart_input_tabview = ctk.CTkTabview(self.bottom_frame, anchor="w")
+        self.chart_input_tabview.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.chart_input_tabview.add(self._chart_input_tab_name)
+        self.chart_input_tabview.set(self._chart_input_tab_name) # 탭 제목 설정
 
-        self.chart_input_textbox = ctk.CTkTextbox(self.chart_input_frame, font=self.font_measure, wrap="none")
-        self.chart_input_textbox.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
-        self.chart_input_apply_btn = ctk.CTkButton(self.chart_input_frame, text="적용", command=self._apply_chart_from_textbox, font=self.font_main)
-        self.chart_input_apply_btn.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 5))
+        chart_input_container = self.chart_input_tabview.tab("코드 차트 입력")
+        chart_input_container.grid_rowconfigure(0, weight=1)
+        chart_input_container.grid_columnconfigure(0, weight=1)
 
-        self.placeholder_text = (
-            "[intro] (Key:C)\n"
-            "| FM7    | G7    | Em7    | Am7   |\n"
-            "| FM7    | G7    | Am7    | %     |\n\n"
-            "[A] (Key:Eb)\n"
-            "| Eb     | %          | AbM7   | Abm7  |\n"
-            "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |"
-        )
-        self._add_placeholder()
-        self.chart_input_textbox.bind("<FocusIn>", self._remove_placeholder)
-        self.chart_input_textbox.bind("<FocusOut>", self._add_placeholder_if_empty)
+        self.chart_input_textbox = ctk.CTkTextbox(chart_input_container, font=self.font_measure, wrap="none")
+        self.chart_input_textbox.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.chart_input_apply_btn = ctk.CTkButton(chart_input_container, text="적용", command=self._apply_chart_from_textbox, font=self.font_main)
+        self.chart_input_apply_btn.grid(row=1, column=0, sticky="ew", padx=5, pady=(0, 5))
 
-        # Right side: Instructions/Log tabs
-        self.bottom_tabs = ctk.CTkTabview(self.bottom_frame, height=140); self.bottom_tabs.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        # 오른쪽: 도움말/로그 탭
+        self.bottom_tabs = ctk.CTkTabview(self.bottom_frame, anchor="w"); self.bottom_tabs.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.bottom_tabs.add("Instructions"); self.bottom_tabs.add("Log")
         self.instructions = ctk.CTkTextbox(self.bottom_tabs.tab("Instructions"), font=self.font_main, wrap="word"); self.instructions.pack(expand=True, fill="both", padx=5, pady=5)
         self.log = ctk.CTkTextbox(self.bottom_tabs.tab("Log"), font=self.font_measure, wrap="none"); self.log.pack(expand=True, fill="both", padx=5, pady=5)
+        self.bottom_tabs.set("Instructions") # 기본 탭을 'Instructions'으로 설정
+
+        self.placeholder_text = "" # Will be set by _update_language
+        self._add_placeholder()
+        self.chart_input_textbox.bind("<FocusIn>", self._remove_placeholder)
+        self.chart_input_textbox.bind("<FocusOut>", self._add_placeholder_if_empty)
 
         self.context_menu = self._create_context_menu()
 
@@ -937,7 +955,16 @@ class App(ctk.CTk):
         self.tensions_label.configure(text=lang["tensions"])
         self.reset_tensions_btn.configure(text=lang["reset_tensions"])
         self.insert_btn.configure(text=lang["build_insert"])
-        self.chart_input_apply_btn.configure(text=lang.get("apply_chart", "적용")) # "apply_chart"를 i18n에 추가해야 합니다.
+        self.chart_input_apply_btn.configure(text=lang["apply_chart"])
+        
+        new_tab_name = lang["chart_input_tab_title"]
+        if self._chart_input_tab_name != new_tab_name:
+            self.chart_input_tabview.rename(self._chart_input_tab_name, new_tab_name)
+            self._chart_input_tab_name = new_tab_name
+
+        # 플레이스홀더 텍스트 업데이트
+        self.placeholder_text = lang["chart_input_placeholder"]
+        self._add_placeholder_if_empty() # 현재 비어있으면 새 언어의 플레이스홀더로 교체
 
         self._rebuild_parts_ui()
 
@@ -967,7 +994,10 @@ class App(ctk.CTk):
             self.log.insert("end", msg + "\n")
             self.log.see("end")
             self.log.configure(state="disabled")
-            if show_log_tab: self.bottom_tabs.set("Log")
+            # 사용자가 로그 탭을 보고 있을 때만 탭을 새로고침하고, 그렇지 않으면 강제로 전환하지 않습니다.
+            current_tab = self.bottom_tabs.get()
+            if show_log_tab or current_tab == "Log":
+                self.bottom_tabs.set("Log")
         except: pass
         try:
             with open(LOGFILE, "a", encoding="utf-8") as f: f.write(msg + "\n")
@@ -1046,7 +1076,7 @@ class App(ctk.CTk):
             self.after(50, lambda: self.scroll.canvas.yview_moveto(yview[0]))
 
         self._building = False
-        self._log(f"UI rebuilt for {len(self.parts_data)} parts.")
+        self._log(f"UI rebuilt for {len(self.parts_data)} parts.", show_log_tab=False)
 
     def _create_part_widgets(self, part_idx: int, part_data: Dict[str, Any]):
         """Creates and packs the UI for a single part."""
@@ -1163,7 +1193,7 @@ class App(ctk.CTk):
             self.add_part_btn.pack(pady=10, padx=5, anchor="w")
 
         self._update_scroll_region_and_view(1.0)
-        self._log("Added a new part.")
+        self._log("Added a new part.", show_log_tab=False)
 
     def _delete_part(self, part_idx: int):
         """Deletes a part from the chart incrementally for better performance."""
@@ -1171,7 +1201,7 @@ class App(ctk.CTk):
             self.parts_data[0]['part'] = ''
             self.parts_data[0]['measures'] = [''] * 4
             self._rebuild_parts_ui()
-            self._log("Last part has been cleared.")
+            self._log("Last part has been cleared.", show_log_tab=False)
             return
 
         # 1. 삭제할 파트의 UI 프레임을 미리 찾아둡니다.
@@ -1218,7 +1248,7 @@ class App(ctk.CTk):
 
         # 8. 스크롤 영역을 업데이트합니다.
         self._update_scroll_region_and_view()
-        self._log(f"Part at index {part_idx} deleted incrementally.")
+        self._log(f"Part at index {part_idx} deleted incrementally.", show_log_tab=False)
 
     def _increase_measures(self, part_idx: int, entry_widget: ctk.CTkEntry):
         """Adds measures to the specified part (defaults to the last part)."""
@@ -1262,7 +1292,7 @@ class App(ctk.CTk):
                     self.entry_global_idx_map[entry] = current_idx + step
 
         self._update_scroll_region_and_view()
-        self._log(f"Added {step} measures to part {part_idx + 1}.")
+        self._log(f"Added {step} measures to part {part_idx + 1}.", show_log_tab=False)
 
     def _decrease_measures(self, part_idx: int, entry_widget: ctk.CTkEntry):
         """Removes measures from the specified part incrementally."""
@@ -1311,11 +1341,11 @@ class App(ctk.CTk):
         
         self._update_scroll_region_and_view()
         if removed_count > 0:
-            self._log(f"Removed {removed_count} measures from part {part_idx + 1}.")
+            self._log(f"Removed {removed_count} measures from part {part_idx + 1}.", show_log_tab=False)
 
     def _update_part_data(self, part_idx: int, key_path: str, value: Any):
         """Updates data in self.parts_data without triggering a full rebuild."""
-        if self._building: return
+        if self._building or self._suppress: return
         try:
             if '.' in key_path:
                 key, index_str = key_path.split('.')
@@ -1430,14 +1460,14 @@ class App(ctk.CTk):
                     if part_text == "%":
                         output_parts.append(part_text); continue
                     try:
-                        self._log(f"Re-converting '{part_text}' from key '{old_key}' to '{new_key}'")
+                        self._log(f"Re-converting '{part_text}' from key '{old_key}' to '{new_key}'", show_log_tab=False)
                         parsed = App.parse_chord_symbol(part_text, old_key)
-                        self._log(f"  -> Parsed with old key: root={parsed.root}, bass_degree={parsed.bass_degree}")
+                        self._log(f"  -> Parsed with old key: root={parsed.root}, bass_degree={parsed.bass_degree}", show_log_tab=False)
                         converted = App.build_string_from_parsed(parsed, is_roman=True, key=new_key)
                         output_parts.append(converted)
-                        self._log(f"  -> Converted with new key: {converted}")
+                        self._log(f"  -> Converted with new key: {converted}", show_log_tab=False)
                     except Exception as ex:
-                        self._log(f"Conversion error on '{part_text}' (key {old_key}->{new_key}): {ex}")
+                        self._log(f"Conversion error on '{part_text}' (key {old_key}->{new_key}): {ex}", show_log_tab=False)
                         output_parts.append(part_text)
                 entry.delete(0, "end"); entry.insert(0, " ".join(output_parts))
         else:
@@ -1449,11 +1479,11 @@ class App(ctk.CTk):
         lang = self.i18n[self.lang_code]
         if messagebox.askyesno(lang["clear_confirm_title"], lang["clear_confirm_message"]):
             self._initialize_chart()
-            self._log("All parts and measures cleared.")
+            self._log("All parts and measures cleared.", show_log_tab=False)
 
     def _on_mode_changed(self, *_):
         if self._suppress: return
-        self._log(f"Mode changed to {self.mode_var.get()}. "); self._update_builder_roots(); self._convert_all_entries()
+        self._log(f"Mode changed to {self.mode_var.get()}. ", show_log_tab=False); self._update_builder_roots(); self._convert_all_entries()
 
     def _convert_all_entries(self):
         mode = self.mode_var.get()
@@ -1470,21 +1500,21 @@ class App(ctk.CTk):
                     output_parts.append(part_text)
                     continue
                 try:
-                    self._log(f"Converting '{part_text}' (Key: {key}, To Roman: {is_to_degree})")
+                    self._log(f"Converting '{part_text}' (Key: {key}, To Roman: {is_to_degree})", show_log_tab=False)
                     parsed = App.parse_chord_symbol(part_text, key)
-                    self._log(f"  -> Parsed: root={parsed.root}, quality={parsed.quality}, bass_degree={parsed.bass_degree}, bass_note_str={parsed.bass_note_str}")
+                    self._log(f"  -> Parsed: root={parsed.root}, quality={parsed.quality}, bass_degree={parsed.bass_degree}, bass_note_str={parsed.bass_note_str}", show_log_tab=False)
                     converted = App.build_string_from_parsed(parsed, is_roman=is_to_degree, key=key)
                     output_parts.append(converted)
-                    self._log(f"  -> Converted to: {converted}")
+                    self._log(f"  -> Converted to: {converted}", show_log_tab=False)
                 except Exception as ex:
-                    self._log(f"Conversion error on '{part_text}' (key {key}): {ex}")
+                    self._log(f"Conversion error on '{part_text}' (key {key}): {ex}", show_log_tab=False)
             entry.delete(0, "end")
             if output_parts:
                 entry.insert(0, " ".join(output_parts))
 
     def _reset_tensions(self):
         for var in self.tension_vars.values(): var.set(False)
-        self._log("Tension selection reset.")
+        self._log("Tension selection reset.", show_log_tab=False)
 
     def _on_build_and_insert(self):
         target = self.last_focused_entry or (self.measure_entries[0] if self.measure_entries else None)
@@ -1517,7 +1547,7 @@ class App(ctk.CTk):
         cur = target.get().strip()
         target.delete(0, "end")
         target.insert(0, (cur + " " + sym).strip())
-        self._log(f"Inserted chord: {sym}")
+        self._log(f"Inserted chord: {sym}", show_log_tab=False)
         
         self._sync_entry_to_model(target)
 
@@ -1644,7 +1674,7 @@ class App(ctk.CTk):
 
         self.parts_data = new_parts_data
         self._rebuild_parts_ui()
-        self._log(f"Loaded chart with {len(self.parts_data)} parts.")
+        self._log(f"Loaded chart with {len(self.parts_data)} parts.", show_log_tab=False)
 
     def _parse_chart_text(self, text: str) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
@@ -1706,7 +1736,7 @@ class App(ctk.CTk):
             messagebox.showwarning("Warning", "No chart data found in the selected file.")
             return
         self._apply_parsed_chart(parsed_rows)
-        self._log(f"Loaded chart from {path}")
+        self._log(f"Loaded chart from {path}", show_log_tab=False)
 
     def _save_chart_to_file(self):
         # _serialize_chart now reads live data directly from the UI widgets,
@@ -1722,7 +1752,7 @@ class App(ctk.CTk):
         except OSError as err:
             messagebox.showerror("Error", f"Failed to save file:\n{err}")
             return
-        self._log(f"Saved chart to {path}")
+        self._log(f"Saved chart to {path}", show_log_tab=False)
 
 if __name__ == "__main__":
     def _escape_for_py(value: str) -> str:

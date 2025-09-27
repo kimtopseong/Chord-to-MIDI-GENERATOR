@@ -824,11 +824,42 @@ class App(ctk.CTk):
         self.reset_tensions_btn = ctk.CTkButton(self.builder_frame, font=self.font_main, command=self._reset_tensions, fg_color="transparent", border_width=1); self.reset_tensions_btn.grid(row=9, column=0, columnspan=4, padx=15, pady=(10,5), sticky="ew")
         self.insert_btn = ctk.CTkButton(self.builder_frame, font=self.font_bold, command=self._on_build_and_insert); self.insert_btn.grid(row=10, column=0, columnspan=4, padx=15, pady=5, sticky="ew")
         
-        self.bottom_tabs = ctk.CTkTabview(self, height=140); self.bottom_tabs.grid(row=3, column=0, columnspan=2, padx=10, pady=(5,10), sticky="ew")
+        # --- Bottom Area ---
+        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.bottom_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=(5,10), sticky="nsew")
+        self.bottom_frame.grid_columnconfigure(0, weight=1)
+        self.bottom_frame.grid_columnconfigure(1, weight=1)
+        self.bottom_frame.grid_rowconfigure(0, weight=1)
+
+        # Left side: Chart text input
+        self.chart_input_frame = ctk.CTkFrame(self.bottom_frame)
+        self.chart_input_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.chart_input_frame.grid_rowconfigure(0, weight=1)
+        self.chart_input_frame.grid_columnconfigure(0, weight=1)
+
+        self.chart_input_textbox = ctk.CTkTextbox(self.chart_input_frame, font=self.font_measure, wrap="none")
+        self.chart_input_textbox.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        self.chart_input_apply_btn = ctk.CTkButton(self.chart_input_frame, text="적용", command=self._apply_chart_from_textbox, font=self.font_main)
+        self.chart_input_apply_btn.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 5))
+
+        self.placeholder_text = (
+            "[intro] (Key:C)\n"
+            "| FM7    | G7    | Em7    | Am7   |\n"
+            "| FM7    | G7    | Am7    | %     |\n\n"
+            "[A] (Key:Eb)\n"
+            "| Eb     | %          | AbM7   | Abm7  |\n"
+            "| Eb     | Eb Eb/Ab   | AbM7   | Abm7  |"
+        )
+        self._add_placeholder()
+        self.chart_input_textbox.bind("<FocusIn>", self._remove_placeholder)
+        self.chart_input_textbox.bind("<FocusOut>", self._add_placeholder_if_empty)
+
+        # Right side: Instructions/Log tabs
+        self.bottom_tabs = ctk.CTkTabview(self.bottom_frame, height=140); self.bottom_tabs.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.bottom_tabs.add("Instructions"); self.bottom_tabs.add("Log")
         self.instructions = ctk.CTkTextbox(self.bottom_tabs.tab("Instructions"), font=self.font_main, wrap="word"); self.instructions.pack(expand=True, fill="both", padx=5, pady=5)
         self.log = ctk.CTkTextbox(self.bottom_tabs.tab("Log"), font=self.font_measure, wrap="none"); self.log.pack(expand=True, fill="both", padx=5, pady=5)
-        
+
         self.context_menu = self._create_context_menu()
 
         self.version_label = ctk.CTkLabel(self, text=f"v{CURRENT_VERSION}", font=ctk.CTkFont(size=12), text_color="gray50")
@@ -838,7 +869,7 @@ class App(ctk.CTk):
         def on_save_midi(event=None): self._on_generate_midi()
 
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
-        self._update_language(); self._suppress = False; self.after(50, self._initialize_chart); self._log("App started.")
+        self._update_language(); self._suppress = False; self.after(50, self._initialize_chart); self._log("App started.", show_log_tab=False)
         self.after(100, self.splash_root.withdraw)
         if sys.platform == "darwin":
 
@@ -906,6 +937,7 @@ class App(ctk.CTk):
         self.tensions_label.configure(text=lang["tensions"])
         self.reset_tensions_btn.configure(text=lang["reset_tensions"])
         self.insert_btn.configure(text=lang["build_insert"])
+        self.chart_input_apply_btn.configure(text=lang.get("apply_chart", "적용")) # "apply_chart"를 i18n에 추가해야 합니다.
 
         self._rebuild_parts_ui()
 
@@ -928,13 +960,14 @@ class App(ctk.CTk):
                 self.builder_root_var.set(App.pc_to_name(App.name_to_pc(self.builder_root_var.get()), use_sharps))
             except (ValueError, AttributeError):
                 self.builder_root_var.set(App.pc_to_name(0, use_sharps))
-    def _log(self, msg: str):
+
+    def _log(self, msg: str, show_log_tab: bool = True):
         try:
             self.log.configure(state="normal")
             self.log.insert("end", msg + "\n")
             self.log.see("end")
             self.log.configure(state="disabled")
-            self.bottom_tabs.set("Log")
+            if show_log_tab: self.bottom_tabs.set("Log")
         except: pass
         try:
             with open(LOGFILE, "a", encoding="utf-8") as f: f.write(msg + "\n")
@@ -942,6 +975,27 @@ class App(ctk.CTk):
     def _set_focus_tracker(self, entry_widget):
         self.last_focused_entry = entry_widget
         self._update_builder_roots()
+
+    def _add_placeholder(self, event=None):
+        self.chart_input_textbox.delete("1.0", "end")
+        self.chart_input_textbox.insert("1.0", self.placeholder_text)
+        self.chart_input_textbox.configure(text_color="gray50")
+
+    def _remove_placeholder(self, event=None):
+        if self.chart_input_textbox.cget("text_color") == "gray50":
+            self.chart_input_textbox.delete("1.0", "end")
+            self.chart_input_textbox.configure(text_color=ctk.ThemeManager.theme["CTkTextbox"]["text_color"])
+
+    def _add_placeholder_if_empty(self, event=None):
+        if not self.chart_input_textbox.get("1.0", "end-1c").strip():
+            self._add_placeholder()
+
+    def _apply_chart_from_textbox(self):
+        content = self.chart_input_textbox.get("1.0", "end-1c")
+        if self.chart_input_textbox.cget("text_color") == "gray50" or not content.strip():
+            self._log("차트 입력 칸이 비어있습니다. (Chart input is empty.)")
+            return
+        self._apply_parsed_chart(self._parse_chart_text(content))
     
     # --- New UI Core Functions ---
 

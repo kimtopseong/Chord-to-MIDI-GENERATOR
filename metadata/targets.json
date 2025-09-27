@@ -1,0 +1,22 @@
+{
+ "signatures": [
+  {
+   "keyid": "69a16beab1d6aef6f990bd1d237f822f490f0c8a88f740de348ac6ba4cf01be2",
+   "sig": "163e11a06c995a76bef793a751a2772157898008a9fdfc05f70a7845c7aa144403969ad2d77cf7cc097c40fc447693849c092af2fc5e228e1270c364a32beb00"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2025-10-04T11:48:42Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "Chord-to-MIDI-GENERATOR-1.2.6.tar.gz": {
+    "hashes": {
+     "sha256": "002dee52008b98eba5695f6a6c43dddc52045cb86a972c87d364a88503da8c56"
+    },
+    "length": 61889038
+   }
+  },
+  "version": 2
+ }
+}

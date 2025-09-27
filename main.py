@@ -28,7 +28,7 @@ else:
 
 APP_TITLE = "Chord-to-MIDI-GENERATOR"
 LOGFILE = "chord_to_midi.log"
-CURRENT_VERSION = "1.2.4"
+CURRENT_VERSION = "1.2.5"
 
 _SINGLE_INSTANCE_LOCK_FILE = None
 
@@ -271,7 +271,10 @@ class App(ctk.CTk):
         quality: str
         tensions: List[str] = field(default_factory=list)
         paren_contents: List[str] = field(default_factory=list)
+        bass_note_str: Optional[str] = None
         bass_note: Optional[str] = None
+        bass_degree: Optional[str] = None
+        bass_interval: Optional[int] = None
         omissions: List[int] = field(default_factory=list)
         is_roman: bool = False
         roman_symbol: Optional[str] = None
@@ -318,6 +321,7 @@ class App(ctk.CTk):
 
     @staticmethod
     def parse_chord_symbol(text: str, key: str) -> 'App.ParsedChord':
+        # self._log(f"Parsing '{text}' in key '{key}'") # This would require passing self, which is not static.
         s = (text or '').strip()
         if not s:
             return App.ParsedChord(root='C', quality='Major')
@@ -340,11 +344,13 @@ class App(ctk.CTk):
         if is_blk:
             s = re.sub('blk', '', s, flags=re.IGNORECASE).strip()
         
-        bass_note = None
+        bass_note_str, bass_note = None, None
         if '/' in s:
             parts = s.split('/', 1); s = parts[0].strip()
-            try: bass_note = App.pc_to_name(App.name_to_pc(parts[1].strip()), App.prefers_sharps(key))
-            except ValueError: bass_note = None
+            bass_note_str = parts[1].strip()
+            try:
+                bass_note = App.pc_to_name(App.name_to_pc(bass_note_str), App.prefers_sharps(key))
+            except ValueError: bass_note_str, bass_note = None, None
 
         omissions = []
         if 'omit3' in s: omissions.append(3); s = s.replace('omit3', '').strip()
@@ -377,6 +383,7 @@ class App(ctk.CTk):
         if m_roman:
             head = m_roman.group(1); is_roman_flag = True; rest = s[len(head):].strip()
             root = App.pc_to_name(App.roman_to_pc_offset(key, head), App.prefers_sharps(key))
+            root_pc = App.name_to_pc(root)
         else:
             m_alpha = re.match(r'(?i)^([A-G][#b]?)', s)
             if m_alpha:
@@ -385,8 +392,30 @@ class App(ctk.CTk):
             else:
                 raise ValueError(f"Unrecognized chord symbol '{text}'")
 
+        bass_interval, bass_degree = None, None
+        if bass_note_str and is_roman_flag:
+            # 도수 모드에서 베이스음이 도수 표기(예: I, V)일 경우에만 bass_degree로 저장합니다.
+            # 알파벳 베이스음은 절대음으로 취급하여 bass_degree를 설정하지 않습니다.
+            m_bass_roman = App.ROMAN_RE.fullmatch(bass_note_str)
+            if m_bass_roman:
+                bass_degree = m_bass_roman.group(0)
+            else:
+                try:
+                    bass_note_pc = App.name_to_pc(bass_note_str)
+                    key_pc = App.name_to_pc(key)
+                    bass_offset_from_key = (bass_note_pc - key_pc + 12) % 12
+                    sem_to_deg = {sem: deg for deg, sem in App.MAJOR_DEGREE_TO_SEMITONES.items()}
+                    # build_string_from_parsed의 도수 변환 로직을 재사용하여 정확도와 일관성을 높입니다.
+                    bass_degree = App.build_string_from_parsed(App.ParsedChord(root=bass_note_str, quality='Major'), is_roman=True, key=key)
+                except ValueError:
+                    bass_note_str, bass_note, bass_degree = None, None, None
         quality, seventh, tensions, alterations = 'Major', None, [], []
         rest_mut = rest
+
+        # CM9, CM11, CM13과 같은 형태를 M7 + 텐션으로 처리
+        m_major_tension = re.match(r'M(9|11|13)', rest_mut)
+        if m_major_tension:
+            rest_mut = rest_mut.replace(m_major_tension.group(0), f'M7{m_major_tension.group(1)}')
 
         if '13' in rest_mut: tensions.append('13'); rest_mut = rest_mut.replace('13', '')
         if '11' in rest_mut: tensions.append('11'); rest_mut = rest_mut.replace('11', '')
@@ -397,15 +426,15 @@ class App(ctk.CTk):
         if sev_m:
             sev_str = sev_m.group(0)
             seventh = 'm7' if sev_str == '7' else sev_str
-            rest_mut = rest_mut.replace(sev_str, '')
             if sev_str == 'm7': quality = 'Minor'
             elif sev_str == 'dim7': quality = 'dim'
+            rest_mut = rest_mut.replace(sev_str, '')
         elif tensions or paren_contents:
             # Don't add a 7th automatically if the only tension is '6'
             non_six_tensions = [t for t in tensions if t != '6']
             # Add a 7th only if tensions like 9, 11, 13 are present outside of parentheses.
             # Tensions in parentheses (e.g., C(9)) are "add" notes and do not imply a 7th.
-            if non_six_tensions:
+            if non_six_tensions and not any(q in rest for q in ['M7', 'm7', 'dim7']):
                 seventh = 'm7'
 
         if is_blk:
@@ -424,13 +453,16 @@ class App(ctk.CTk):
         if '#5' in rest_mut: alterations.append('#5')
         
         if 'm7b5' in rest: quality, seventh, alterations = 'dim', 'm7', []
-        
-        return App.ParsedChord(root=root, quality=quality, tensions=tensions, paren_contents=paren_contents,
-                               bass_note=bass_note, omissions=omissions, is_roman=is_roman_flag,
+
+        parsed = App.ParsedChord(root=root, quality=quality, tensions=tensions, paren_contents=paren_contents, bass_note_str=bass_note_str,
+                               bass_note=bass_note, bass_degree=bass_degree, bass_interval=bass_interval, omissions=omissions, is_roman=is_roman_flag,
                                roman_symbol=head, seventh=seventh, alterations=alterations)
+        # self._log(f"  -> Parsed: root={parsed.root}, quality={parsed.quality}, bass_degree={parsed.bass_degree}")
+        return parsed
 
     @staticmethod
     def build_string_from_parsed(p: 'App.ParsedChord', is_roman: bool, key: str) -> str:
+        # self._log(f"Building string for '{p.root}' in key '{key}', is_roman={is_roman}")
         if is_roman:
             if p.is_roman and p.roman_symbol is not None: base = p.roman_symbol
             else:
@@ -483,9 +515,22 @@ class App(ctk.CTk):
 
         paren_str = f"({','.join(p.paren_contents)})" if p.paren_contents else ''
         om_str = ''.join([f"omit{o}" for o in p.omissions])
-        bass_str = f"/{p.bass_note}" if p.bass_note and p.bass_note != p.root else ""
+        
+        bass_display = None
+        if is_roman and p.bass_degree:
+            # bass_degree를 사용하여 새로운 키에 맞는 베이스음을 계산합니다. (가장 높은 우선순위)
+            bass_pc = App.roman_to_pc_offset(key, p.bass_degree)
+            bass_display = App.pc_to_name(bass_pc, App.prefers_sharps(key))
+        elif p.bass_note_str is not None: # bass_degree가 없을 때, 원본 문자열을 사용합니다.
+            bass_display = p.bass_note_str
+        
+        # 사용자가 베이스음을 명시적으로 입력했다면(p.bass_note_str is not None), 근음과 같더라도 생략하지 않습니다.
+        show_bass = bass_display and (p.bass_note_str is not None or bass_display != p.root)
+        bass_str = f"/{bass_display}" if show_bass else ""
  
-        return f"{base}{core_qual_str}{six_part}{sev_prefix}{num_part}{alt_str}{sus_str}{om_str}{paren_str}{bass_str}"
+        result = f"{base}{core_qual_str}{six_part}{sev_prefix}{num_part}{alt_str}{sus_str}{om_str}{paren_str}{bass_str}"
+        # self._log(f"  -> Built: {result}")
+        return result
 
     @staticmethod
     def build_voicing(parsed: 'App.ParsedChord', omit5_on_conflict: bool, omit_duplicated_bass: bool) -> List[int]:
@@ -885,7 +930,11 @@ class App(ctk.CTk):
                 self.builder_root_var.set(App.pc_to_name(0, use_sharps))
     def _log(self, msg: str):
         try:
-            self.log.configure(state="normal"); self.log.insert("end", msg + "\n"); self.log.see("end"); self.log.configure(state="disabled")
+            self.log.configure(state="normal")
+            self.log.insert("end", msg + "\n")
+            self.log.see("end")
+            self.log.configure(state="disabled")
+            self.bottom_tabs.set("Log")
         except: pass
         try:
             with open(LOGFILE, "a", encoding="utf-8") as f: f.write(msg + "\n")
@@ -1294,7 +1343,8 @@ class App(ctk.CTk):
             if 0 <= part_idx < len(self.parts_data):
                 return self.parts_data[part_idx].get('key', 'C')
 
-        return self._get_current_builder_key()
+        # Fallback if entry is not in the map to prevent recursion
+        return self.parts_data[0].get('key', 'C') if self.parts_data else "C"
 
     def _get_current_builder_key(self) -> str:
         if self.last_focused_entry:
@@ -1303,9 +1353,42 @@ class App(ctk.CTk):
 
     def _on_part_key_changed(self, part_idx: int, new_key: str):
         if self._building: return
-        self._update_part_data(part_idx, 'key', new_key)
-        if not self._suppress:
+        
+        old_key = self.parts_data[part_idx]['key']
+        
+        # Update the data model immediately so other functions get the new key
+        self.parts_data[part_idx]['key'] = new_key
+        self._convert_all_entries()
+
+        is_degree_mode = self.mode_var.get() == self.i18n[self.lang_code]["degree"]
+
+        # If in degree mode, we must manually convert the affected part's entries
+        # using the old key for parsing and the new key for building.
+        if is_degree_mode and old_key != new_key:
+            part_entries = [e for e, p_idx in self.entry_part_map.items() if p_idx == part_idx]
+            
+            for entry in part_entries:
+                text = entry.get().strip()
+                if not text: continue
+                
+                output_parts = []
+                for part_text in App.split_measure_text(text):
+                    if part_text == "%":
+                        output_parts.append(part_text); continue
+                    try:
+                        self._log(f"Re-converting '{part_text}' from key '{old_key}' to '{new_key}'")
+                        parsed = App.parse_chord_symbol(part_text, old_key)
+                        self._log(f"  -> Parsed with old key: root={parsed.root}, bass_degree={parsed.bass_degree}")
+                        converted = App.build_string_from_parsed(parsed, is_roman=True, key=new_key)
+                        output_parts.append(converted)
+                        self._log(f"  -> Converted with new key: {converted}")
+                    except Exception as ex:
+                        self._log(f"Conversion error on '{part_text}' (key {old_key}->{new_key}): {ex}")
+                        output_parts.append(part_text)
+                entry.delete(0, "end"); entry.insert(0, " ".join(output_parts))
+        else:
             self._convert_all_entries()
+
         self._update_builder_roots()
 
     def _clear_all_chords(self):
@@ -1333,9 +1416,12 @@ class App(ctk.CTk):
                     output_parts.append(part_text)
                     continue
                 try:
+                    self._log(f"Converting '{part_text}' (Key: {key}, To Roman: {is_to_degree})")
                     parsed = App.parse_chord_symbol(part_text, key)
+                    self._log(f"  -> Parsed: root={parsed.root}, quality={parsed.quality}, bass_degree={parsed.bass_degree}, bass_note_str={parsed.bass_note_str}")
                     converted = App.build_string_from_parsed(parsed, is_roman=is_to_degree, key=key)
                     output_parts.append(converted)
+                    self._log(f"  -> Converted to: {converted}")
                 except Exception as ex:
                     self._log(f"Conversion error on '{part_text}' (key {key}): {ex}")
             entry.delete(0, "end")
